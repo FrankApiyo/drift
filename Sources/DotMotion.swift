@@ -137,6 +137,8 @@ enum DotMotion {
 
     /// Sets a shape that doesn't spin upright and returns a settle that eases
     /// there now from its tilt, so it never snaps; nil if nothing needs it.
+    /// Call it inside the transaction that adds the settle, or a frame can
+    /// show the shape upright before the settle arrives.
     static func standUpright(_ layer: CALayer, for pass: DotPass) -> CAAnimation? {
         guard pass.turn.style != .spin else { return nil }
         let angle = remainder(rotation(of: layer), 2 * .pi)

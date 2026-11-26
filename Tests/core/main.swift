@@ -278,6 +278,7 @@ for (original, shape) in [(spinningStar, DotShape.circle), (spinningStar, .heart
 check(restyle(spinningStar, to: .sparkle).look.shape == .sparkle, "a star can become a sparkle")
 check(restyle(rockingHeart, to: .moon).look.shape == .moon, "a heart can become a moon")
 check(restyle(tumblingHeart, to: .star).look.shape == .star, "confetti keeps tumbling as its shape changes")
+check(restyle(tumblingHeart, to: .moon).look.shape == .moon, "confetti can tumble a heart into a moon")
 
 // MARK: - Special motion
 

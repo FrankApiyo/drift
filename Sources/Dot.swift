@@ -140,13 +140,12 @@ final class Dot: NSObject, CAAnimationDelegate {
         drift.delegate = self
         drift.setValue(tripID, forKey: Self.tripKey)
         let motions = DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion)
-        let settle = DotMotion.standUpright(layer, for: pass)
 
         CATransaction.withoutActions {
             layer.position.y = toY
             DotMotion.keys.forEach(layer.removeAnimation(forKey:))
             layer.add(drift, forKey: DotMotion.driftKey)
-            settle.map { layer.add($0, forKey: DotMotion.settleKey) }
+            DotMotion.standUpright(layer, for: pass).map { layer.add($0, forKey: DotMotion.settleKey) }
             motions.forEach { key, animation in layer.add(animation, forKey: key) }
         }
         trip = Trip(fromY: y, toY: toY, startTime: CACurrentMediaTime(), duration: duration)
