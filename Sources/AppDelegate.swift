@@ -105,7 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
             var rng = SystemRandomNumberGenerator()
             mood = Mood.random(after: mood, using: &rng)
             DotImages.removeAll()
-            windows.forEach { $0.field.setMood(mood) }
+            let desktop = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+            let sweep = Sweep.random(desktop: desktop, using: &rng)
+            windows.forEach { $0.field.setMood(mood, sweep: sweep) }
         }
         scheduleMoodChange()
     }

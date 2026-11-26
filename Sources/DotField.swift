@@ -15,7 +15,9 @@ final class DotField {
     private static let moodRippleDelays: ClosedRange<TimeInterval> = 0...20
     private static let moodFadeDurations: ClosedRange<TimeInterval> = 3...8
 
-    init(area: CGSize, scale: CGFloat, count: Int, speedFactor: Double, mood: Mood) {
+    // CONTRACT: screenFrame is in global desktop coordinates (for sweeps across displays).
+    init(screenFrame: CGRect, scale: CGFloat, count: Int, speedFactor: Double, mood: Mood, reduceMotion: Bool) {
+        let area = screenFrame.size
         self.area = area
         self.scale = scale
         self.speedFactor = speedFactor
@@ -59,7 +61,18 @@ final class DotField {
         dots.forEach { $0.setSpeedFactor(factor) }
     }
 
-    func setMood(_ newMood: Mood) {
+    // CONTRACT STUB: look engine replaces. Only animates while running.
+    func setReduceMotion(_ reduceMotion: Bool) {}
+
+    // CONTRACT STUB: look engine replaces. Fades the whole field out or back
+    // to its opacity setting (container opacity animation, no group opacity).
+    func fade(toVisible visible: Bool, duration: TimeInterval) {}
+
+    // CONTRACT STUB: look engine replaces. One short-lived extra layer.
+    func showVisitor(_ kind: VisitorKind) {}
+
+    // CONTRACT: the same Sweep is passed to every screen's field.
+    func setMood(_ newMood: Mood, sweep: Sweep) {
         mood = newMood
         dots.forEach { dot in
             dot.adopt(

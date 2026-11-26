@@ -12,8 +12,9 @@ final class OverlayWindow: NSWindow {
     init(screen: NSScreen, settings: Settings, mood: Mood) {
         let frame = screen.frame
         field = DotField(
-            area: frame.size, scale: screen.backingScaleFactor,
-            count: settings.count.dots, speedFactor: settings.speed.factor, mood: mood)
+            screenFrame: frame, scale: screen.backingScaleFactor,
+            count: settings.count.dots, speedFactor: settings.speed.factor, mood: mood,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         super.init(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
 
         isOpaque = false

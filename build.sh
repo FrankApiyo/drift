@@ -15,11 +15,18 @@ target_for() {
   echo "$1-apple-macos${MIN_MACOS}"
 }
 
+# Each Tests/<suite>/ has a main.swift and a sources.txt listing the Sources it covers.
 run_checks() {
   mkdir -p build
-  swiftc "${SWIFT_FLAGS[@]}" -target "$(target_for "$(uname -m)")" -o build/drift-checks \
-    Sources/DotPass.swift Sources/Mood.swift Sources/Settings.swift Tests/main.swift
-  build/drift-checks
+  for suite in Tests/*/; do
+    local name
+    name="$(basename "$suite")"
+    local sources=()
+    while IFS= read -r line; do [[ -n "$line" ]] && sources+=("$line"); done < "$suite/sources.txt"
+    swiftc "${SWIFT_FLAGS[@]}" -target "$(target_for "$(uname -m)")" -o "build/checks-$name" \
+      "${sources[@]}" "$suite/main.swift"
+    "build/checks-$name"
+  done
 }
 
 # Builds the app bundle for the given architectures, merged into one binary.

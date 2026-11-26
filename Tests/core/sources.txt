@@ -1,0 +1,5 @@
+Sources/DotPass.swift
+Sources/Mood.swift
+Sources/Settings.swift
+Sources/Visitor.swift
+Sources/Sweep.swift

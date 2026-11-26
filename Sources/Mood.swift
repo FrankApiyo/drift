@@ -79,6 +79,20 @@ struct Mood {
     let palette: Palette
     let shapes: [DotShape]
     let pace: Double
+    var motion = MotionStyle.drift
+    var event: RareEvent?
+    var isSpectrum = false
+
+    // CONTRACT STUB: look engine replaces.
+    var name: String { event?.title ?? palette.name }
+    // CONTRACT STUB: look engine replaces. e.g. "Dusk · stars, hearts"
+    var summary: String { name }
+
+    // CONTRACT STUB: look engine replaces. Picks the next mood using time of
+    // day, calendar, focus time, spectrum availability and Reduce Motion.
+    static func next<R: RandomNumberGenerator>(after previous: Mood, context: MoodContext, using rng: inout R) -> Mood {
+        random(after: previous, using: &rng)
+    }
 
     static func random<R: RandomNumberGenerator>(after previous: Mood, using rng: inout R) -> Mood {
         let pool = Double.random(in: 0..<1, using: &rng) < brightChance ? Palette.bright : Palette.soft
@@ -100,4 +114,28 @@ struct Mood {
             color: colors.randomElement(using: &rng) ?? RGB(red: 1, green: 1, blue: 1)
         )
     }
+}
+
+/// How dots move during a mood. Takes effect at each dot's next wrap.
+enum MotionStyle: Equatable {
+    case drift, fireflies, snow, shoal, confetti
+}
+
+/// Rare, collectable moments listed in the menu's Seen submenu.
+enum RareEvent: String, CaseIterable {
+    case shootingStar, lantern, spectrum, goldenHour, fullMoon, valentines, halloween, newYear, winterSolstice
+
+    // CONTRACT STUB: look engine replaces with proper titles.
+    var title: String { rawValue }
+}
+
+/// What the app knows when choosing the next mood.
+struct MoodContext {
+    let date: Date
+    let calendar: Calendar
+    /// Seconds of continuous, unpaused use with recent user activity.
+    let focusedFor: TimeInterval
+    /// False once a spectrum mood has been shown today.
+    let spectrumAvailable: Bool
+    let reduceMotion: Bool
 }
