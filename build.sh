@@ -58,7 +58,7 @@ install_app() {
 
 package_app() {
   rm -f build/Drift.zip
-  ditto -c -k --keepParent "$APP" build/Drift.zip
+  ditto -c -k --norsrc --noextattr --keepParent "$APP" build/Drift.zip
   echo "Packaged build/Drift.zip"
 }
 
