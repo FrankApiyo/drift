@@ -35,7 +35,8 @@ open ~/Applications/Drift.app
 ```
 
 Drift has no Dock icon. Look for the dotted circle in the menu bar. The first
-time Drift opens, a note under the icon says where it lives and offers Launch
+time Drift opens with its icon in view (not hidden by the notch or a menu bar
+manager), a note under the icon says where it lives and offers Launch
 at Login. The menu has:
 
 - **Now**: the current mood's name and shapes
