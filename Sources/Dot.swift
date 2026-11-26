@@ -20,6 +20,7 @@ final class Dot: NSObject, CAAnimationDelegate {
 
     private static let tripKey = "tripID"
     private static let rotationKey = "transform.rotation.z"
+    private static let motionKeys = ["drift", "wobble", "spin"]
     private static let wobbleSamples = 24
     /// Slow motion looks the same at 30 fps, so don't ask ProMotion screens for 120.
     private static let frameRates = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
@@ -56,7 +57,9 @@ final class Dot: NSObject, CAAnimationDelegate {
         withoutImplicitAnimation {
             layer.position = CGPoint(x: x, y: y)
             layer.setValue(angle, forKeyPath: Self.rotationKey)
-            layer.removeAllAnimations()
+            // A mood fade lasts under half a minute, so let it finish rather
+            // than snap the frozen dot to its new look.
+            Self.motionKeys.forEach(layer.removeAnimation(forKey:))
         }
     }
 

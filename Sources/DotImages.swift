@@ -14,6 +14,12 @@ enum DotImages {
         return image
     }
 
+    /// Called on each mood change so the cache holds roughly one mood's looks.
+    /// Layers still showing an old image keep it alive until they wrap.
+    static func removeAll() {
+        cache.removeAll()
+    }
+
     private static func render(_ look: DotLook) -> CGImage? {
         guard
             let space = CGColorSpace(name: CGColorSpace.sRGB),

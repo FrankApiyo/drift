@@ -57,8 +57,9 @@ package_app() {
 
 case "${1:-build}" in
   build) build_app "$(uname -m)" ;;
-  install) build_app "$(uname -m)" && install_app ;;
-  dist) build_app arm64 x86_64 && package_app ;;
+  # Separate statements, not `&&`: set -e is ignored inside a function on the left of `&&`.
+  install) build_app "$(uname -m)"; install_app ;;
+  dist) build_app arm64 x86_64; package_app ;;
   test) run_checks ;;
   *) echo "usage: $0 [build|install|dist|test]" >&2; exit 64 ;;
 esac

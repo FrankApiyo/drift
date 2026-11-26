@@ -7,19 +7,32 @@ import Foundation
 enum SingleInstance {
     private static var lockDescriptor: Int32 = -1
 
-    /// Returns false if another Drift already holds the lock.
+    /// Returns false only if another Drift already holds the lock. Any other
+    /// failure lets Drift run, since never starting is worse than a rare duplicate.
     static func claim() -> Bool {
-        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("local.drift.Drift.lock")
+        guard let path = lockFilePath() else { return true }
         let descriptor = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else {
-            // Without a lock file we can't tell; better to run than to never start.
-            return true
-        }
+        guard descriptor >= 0 else { return true }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let heldElsewhere = errno == EWOULDBLOCK
             close(descriptor)
-            return false
+            return !heldElsewhere
         }
         lockDescriptor = descriptor
         return true
+    }
+
+    /// In Application Support rather than the temp folder, which macOS cleans
+    /// nightly and could delete from under a long-running Drift.
+    private static func lockFilePath() -> String? {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return nil }
+        let folder = support.appendingPathComponent("Drift", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        return folder.appendingPathComponent("drift.lock").path
     }
 }

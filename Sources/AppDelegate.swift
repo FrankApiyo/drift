@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         if shouldAnimate {
             var rng = SystemRandomNumberGenerator()
             mood = Mood.random(after: mood, using: &rng)
+            DotImages.removeAll()
             windows.forEach { $0.field.setMood(mood) }
         }
         scheduleMoodChange()
