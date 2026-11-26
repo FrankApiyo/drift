@@ -18,6 +18,9 @@ final class Welcome: NSObject, NSPopoverDelegate {
 
     func show(below button: NSStatusBarButton) {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    func popoverDidShow(_ notification: Notification) {
         // A transient popover only notices outside clicks once its app is
         // active, which Drift isn't. Mouse monitors need no permission.
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {

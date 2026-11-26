@@ -54,6 +54,12 @@ enum DepthTier: CaseIterable {
         }
     }
 
+    /// Halfway between two tiers, for a layer that passes in front of one
+    /// tier's dots and behind the other's.
+    static func zPosition(between back: DepthTier, and front: DepthTier) -> CGFloat {
+        (back.zPosition + front.zPosition) / 2
+    }
+
     /// About 55% far, 35% mid and 10% near. A golden-ratio sequence rather
     /// than a coin flip, so even 15 dots get a near one or two and never a crowd.
     static func forDot(index: Int) -> DepthTier {

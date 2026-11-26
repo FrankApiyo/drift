@@ -12,6 +12,14 @@ struct DotPass {
         case spin(period: TimeInterval, clockwise: Bool)
         /// A gentle sway either side of upright, in radians.
         case rock(amplitude: Double, period: TimeInterval)
+
+        var style: TurnStyle {
+            switch self {
+            case .still: .still
+            case .spin: .spin
+            case .rock: .rock
+            }
+        }
     }
 
     static let crossingSeconds: ClosedRange<Double> = 15...40
@@ -43,8 +51,13 @@ struct DotPass {
     /// Shoal dots line their sway up to a shared clock.
     let wobblesInUnison: Bool
     let turn: Turn
+    /// The mood motion the pass was drawn for, which a restyle keeps.
+    let motion: MotionStyle
     /// Fireflies brighten and dim over this many seconds; nil for steady dots.
     let glowPeriod: TimeInterval?
+
+    var wobbles: Bool { wobbleAmplitude > 0 && wobblePeriod > 0 }
+    var glows: Bool { (glowPeriod ?? 0) > 0 }
 
     static func random<R: RandomNumberGenerator>(
         _ setup: PassSetup, mood: Mood, oddOneOutChance: Double, using rng: inout R
@@ -72,30 +85,44 @@ struct DotPass {
             wobblePeriod: wobblePeriod,
             wobblesInUnison: mood.motion == .shoal,
             turn: randomTurn(for: look.shape, motion: mood.motion, using: &rng),
+            motion: mood.motion,
             glowPeriod: mood.motion == .fireflies ? .random(in: glowPeriods, using: &rng) : nil
         )
+    }
+
+    /// Confetti tumbles every shape that isn't round.
+    static func turnStyle(for shape: DotShape, motion: MotionStyle) -> TurnStyle {
+        switch (shape.turnStyle, motion) {
+        case (.still, _): .still
+        case (_, .confetti): .spin
+        case let (style, _): style
+        }
     }
 
     private static func randomTurn<R: RandomNumberGenerator>(
         for shape: DotShape, motion: MotionStyle, using rng: inout R
     ) -> Turn {
-        switch (shape.turnStyle, motion == .confetti) {
-        case (.still, _):
+        switch turnStyle(for: shape, motion: motion) {
+        case .still:
             return .still
-        case (_, true):
-            return .spin(period: .random(in: confettiSpinPeriods, using: &rng), clockwise: .random(using: &rng))
-        case (.spin, false):
-            return .spin(period: .random(in: spinPeriods, using: &rng), clockwise: .random(using: &rng))
-        case (.rock, false):
+        case .spin:
+            let periods = motion == .confetti ? confettiSpinPeriods : spinPeriods
+            return .spin(period: .random(in: periods, using: &rng), clockwise: .random(using: &rng))
+        case .rock:
             return .rock(amplitude: .random(in: rockAngles, using: &rng), period: .random(in: rockPeriods, using: &rng))
         }
     }
 
-    func restyled(_ newLook: DotLook) -> DotPass {
-        DotPass(
+    /// Keeps the turn while it suits the new shape, so a running spin or
+    /// rock carries on; otherwise draws one that does.
+    func restyled<R: RandomNumberGenerator>(_ newLook: DotLook, using rng: inout R) -> DotPass {
+        let suits = turn.style == Self.turnStyle(for: newLook.shape, motion: motion)
+        return DotPass(
             direction: direction, x: x, diameter: diameter, look: newLook, alpha: alpha,
             pointsPerSecond: pointsPerSecond, wobbleAmplitude: wobbleAmplitude, wobblePeriod: wobblePeriod,
-            wobblesInUnison: wobblesInUnison, turn: turn, glowPeriod: glowPeriod)
+            wobblesInUnison: wobblesInUnison,
+            turn: suits ? turn : Self.randomTurn(for: newLook.shape, motion: motion, using: &rng),
+            motion: motion, glowPeriod: glowPeriod)
     }
 
     /// Off-screen y where the dot enters. Layer coordinates put y = 0 at the bottom.

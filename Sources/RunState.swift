@@ -40,8 +40,9 @@ struct RunState: Equatable {
         self.anyWindowVisible = anyWindowVisible
     }
 
-    /// Everything but visibility, which each screen judges for itself.
-    var shouldAnimate: Bool {
+    /// Neither the user nor the system has paused Drift, though every screen
+    /// may still be out of sight.
+    var isUnpaused: Bool {
         !isUserPaused && systemAllowsMotion
     }
 
@@ -64,7 +65,8 @@ struct RunState: Equatable {
         return nil
     }
 
-    var isAnimating: Bool {
+    /// Unpaused, with at least one screen in view.
+    var isVisiblyAnimating: Bool {
         pauseReason == nil
     }
 

@@ -142,16 +142,6 @@ struct Mood {
         return ([name] + motionName + [shapeNames]).joined(separator: " · ")
     }
 
-    static func random<R: RandomNumberGenerator>(after previous: Mood, using rng: inout R) -> Mood {
-        let pool = Double.random(in: 0..<1, using: &rng) < brightChance ? Palette.bright : Palette.soft
-        let choices = pool.filter { $0 != previous.palette }
-        return Mood(
-            palette: choices.randomElement(using: &rng) ?? previous.palette,
-            shapes: randomShapes(using: &rng),
-            pace: .random(in: paces, using: &rng)
-        )
-    }
-
     static func randomShapes<R: RandomNumberGenerator>(using rng: inout R) -> [DotShape] {
         let count = Int.random(in: shapeCounts, using: &rng)
         return Array(DotShape.allCases.shuffled(using: &rng).prefix(count))

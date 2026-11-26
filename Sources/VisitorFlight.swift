@@ -6,26 +6,32 @@ final class VisitorFlight: NSObject, CAAnimationDelegate {
     let kind: VisitorKind
     private let layer = CALayer()
 
-    private static let shootingStarSize = CGSize(width: 128, height: 16)
     private static let flightKey = "flight"
 
     init?(kind: VisitorKind, scale: CGFloat) {
         guard let image = VisitorImages.image(for: kind) else { return nil }
         self.kind = kind
         super.init()
-        let side = VisitorPath.lanternSize
-        let size = kind == .shootingStar ? Self.shootingStarSize : CGSize(width: side, height: side)
         CATransaction.withoutActions {
             layer.contents = image
             layer.contentsScale = scale
             layer.contentsGravity = .resize
-            layer.bounds = CGRect(origin: .zero, size: size)
-            layer.zPosition = kind == .shootingStar ? -0.5 : 0.5
+            layer.bounds = CGRect(origin: .zero, size: kind.appearance.size)
+            layer.zPosition = Self.zPosition(for: kind)
             layer.opacity = 0
         }
     }
 
+    /// A shooting star crosses the sky behind the mid dots; a lantern rises in front of them.
+    private static func zPosition(for kind: VisitorKind) -> CGFloat {
+        switch kind {
+        case .shootingStar: DepthTier.zPosition(between: .far, and: .mid)
+        case .lantern: DepthTier.zPosition(between: .mid, and: .near)
+        }
+    }
+
     func launch(in container: CALayer, area: CGSize) {
+        let appearance = kind.appearance
         var rng = SystemRandomNumberGenerator()
         let route = VisitorPath.random(for: kind, area: area, using: &rng)
         let path = CGMutablePath()
@@ -35,12 +41,12 @@ final class VisitorFlight: NSObject, CAAnimationDelegate {
         let move = CAKeyframeAnimation(keyPath: "position")
         move.path = path
         move.calculationMode = .paced
-        if kind == .shootingStar { move.rotationMode = .rotateAuto }
+        if appearance.facesAlongPath { move.rotationMode = .rotateAuto }
 
-        let isStar = kind == .shootingStar
+        let bright = appearance.brightBetween
         let glow = CAKeyframeAnimation(keyPath: "opacity")
-        glow.values = isStar ? [0, 0.7, 0.7, 0] : [0, 0.6, 0.6, 0]
-        glow.keyTimes = isStar ? [0, 0.25, 0.7, 1] : [0, 0.1, 0.9, 1]
+        glow.values = [0, appearance.peakOpacity, appearance.peakOpacity, 0]
+        glow.keyTimes = [0, bright.lowerBound, bright.upperBound, 1].map { NSNumber(value: $0) }
         glow.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 3)
 
         let flight = CAAnimationGroup()

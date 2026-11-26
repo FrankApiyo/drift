@@ -3,7 +3,7 @@ import AppKit
 protocol MenuController: AnyObject {
     var settings: Settings { get }
     var isUserPaused: Bool { get }
-    var isAnimating: Bool { get }
+    var isVisiblyAnimating: Bool { get }
     var hasPauseShortcut: Bool { get }
     var isLaunchAtLoginEnabled: Bool { get }
     var moodSummary: String { get }
@@ -17,10 +17,6 @@ protocol MenuController: AnyObject {
 /// The menu bar icon and its menu. Items are rebuilt each time the menu opens,
 /// so their checkmarks always match the current state.
 final class StatusMenu: NSObject, NSMenuDelegate {
-    /// Matches the hot key registered in HotKey.pauseToggle.
-    private static let pauseKey = "d"
-    private static let pauseModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
-
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private weak var controller: MenuController?
 
@@ -62,10 +58,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         menu.items = [
             InfoItem("Now: \(controller.moodSummary)", enabled: false),
-            ActionItem("New Mood", enabled: controller.isAnimating) { controller.newMood() },
+            ActionItem("New Mood", enabled: controller.isVisiblyAnimating) { controller.newMood() },
             ActionItem(
                 controller.isUserPaused ? "Resume" : "Pause",
-                key: controller.hasPauseShortcut ? Self.pauseKey : "", modifiers: Self.pauseModifiers
+                key: controller.hasPauseShortcut ? Shortcut.pauseToggle.keyEquivalent : "",
+                modifiers: Shortcut.pauseToggle.modifiers
             ) { controller.togglePause() },
             .separator(),
             choices("Layer", current: settings.layer) { value in change { $0.with(\.layer, value) } },

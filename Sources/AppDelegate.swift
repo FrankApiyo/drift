@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
     /// Set while a pause fades the dots out; they keep moving until it ends.
     private var pauseFadeTimer: Timer?
     private lazy var moods = MoodDirector(
-        isAnimating: { [unowned self] in runState.isAnimating },
+        isVisiblyAnimating: { [unowned self] in runState.isVisiblyAnimating },
         windows: { [unowned self] in windows })
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
     // MARK: - MenuController
 
     var isLaunchAtLoginEnabled: Bool { LoginItem.isEnabled }
-    var isAnimating: Bool { runState.isAnimating }
+    var isVisiblyAnimating: Bool { runState.isVisiblyAnimating }
     var hasPauseShortcut: Bool { hotKey != nil }
     var moodSummary: String { moods.mood.summary }
     var sightings: Sightings { moods.sightings }
@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         let state = runState
         windows.forEach { $0.field.setRunning(state.motionAllowed && $0.isOnScreen) }
         // Working in a full-screen app still counts as focus, so visibility is left out.
-        moods.animatingChanged(state.shouldAnimate)
+        moods.unpausedChanged(state.isUnpaused)
         statusMenu?.show(pauseReason: state.pauseReason)
     }
 
@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
             if !isUserPaused {
                 window.field.fade(toVisible: true, duration: Self.launchFade)
             }
-            window.orderFrontRegardless()
+            window.present()
         }
         updateRunning()
     }

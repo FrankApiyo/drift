@@ -8,11 +8,11 @@ final class MoodDirector {
     private var spectrumDay = SpectrumDay.load()
     private var focusClock = FocusClock()
     private var timer: Timer?
-    private let isAnimating: () -> Bool
+    private let isVisiblyAnimating: () -> Bool
     private let windows: () -> [OverlayWindow]
 
-    init(isAnimating: @escaping () -> Bool, windows: @escaping () -> [OverlayWindow]) {
-        self.isAnimating = isAnimating
+    init(isVisiblyAnimating: @escaping () -> Bool, windows: @escaping () -> [OverlayWindow]) {
+        self.isVisiblyAnimating = isVisiblyAnimating
         self.windows = windows
     }
 
@@ -21,13 +21,13 @@ final class MoodDirector {
     }
 
     func changeNow() {
-        guard isAnimating() else { return }
+        guard isVisiblyAnimating() else { return }
         timer?.invalidate()
         changeMood()
     }
 
-    func animatingChanged(_ animating: Bool) {
-        focusClock = focusClock.running(animating, at: Date())
+    func unpausedChanged(_ unpaused: Bool) {
+        focusClock = focusClock.running(unpaused, at: Date())
     }
 
     func woke() {
@@ -46,16 +46,17 @@ final class MoodDirector {
     }
 
     private func changeMood() {
+        let now = Date()
+        focusClock = focusClock.checkingActivity(idleFor: Self.secondsSinceInput(), at: now)
         // While paused nobody is watching, so save the surprise.
-        if isAnimating() {
-            applyNextMood(at: Date(), calendar: .current)
+        if isVisiblyAnimating() {
+            applyNextMood(at: now, calendar: .current)
         }
         scheduleChange()
     }
 
     private func applyNextMood(at now: Date, calendar: Calendar) {
         var rng = SystemRandomNumberGenerator()
-        focusClock = focusClock.checkingActivity(idleFor: Self.secondsSinceInput(), at: now)
         let context = MoodContext(
             date: now, calendar: calendar,
             focusedFor: focusClock.elapsed(at: now),

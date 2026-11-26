@@ -8,14 +8,25 @@ enum DotMotion {
     static let wobbleKey = "wobble"
     static let turnKey = "turn"
     static let glowKey = "glow"
+    static let settleKey = "settle"
     static let restyleKey = "restyle"
     static let swellKey = "swell"
     /// What `Dot.stop()` removes. A mood's restyle and swell last under half
     /// a minute, so they are left to finish rather than snap.
-    static let keys = [driftKey, wobbleKey, turnKey, glowKey]
+    static let keys: Set = [driftKey, wobbleKey, turnKey, glowKey, settleKey]
     /// Slow motion looks the same at 30 fps, so don't ask ProMotion screens for 120.
     static let frameRates = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     static let swellScale: CGFloat = 1.15
+    static let settleSeconds: TimeInterval = 3
+
+    /// The motion a trip runs; a trip removes every other motion key so
+    /// nothing from an earlier pass carries on. A glow doesn't move the dot,
+    /// so Reduce Motion keeps it.
+    static func neededKeys(for pass: DotPass, reduceMotion: Bool) -> Set<String> {
+        let moving = reduceMotion ? [] : [(wobbleKey, pass.wobbles), (turnKey, pass.turn != .still)]
+        let wanted = [(driftKey, true), (glowKey, pass.glows)] + moving
+        return Set(wanted.filter(\.1).map(\.0))
+    }
 
     static func drift(fromY: CGFloat, toY: CGFloat, duration: TimeInterval) -> CABasicAnimation {
         let drift = CABasicAnimation(keyPath: "position.y")
@@ -30,7 +41,7 @@ enum DotMotion {
     /// so resuming doesn't make the dot jump; a shoal waits for the shared
     /// clock's next beat so every dot sways in step.
     static func wobble(for pass: DotPass, on layer: CALayer) -> CAAnimation? {
-        guard pass.wobbleAmplitude > 0, pass.wobblePeriod > 0 else { return nil }
+        guard pass.wobbles else { return nil }
         let wobble = sway(keyPath: "position.x", amplitude: Double(pass.wobbleAmplitude), period: pass.wobblePeriod)
         if pass.wobblesInUnison {
             let nextBeat = (CACurrentMediaTime() / pass.wobblePeriod).rounded(.up) * pass.wobblePeriod
@@ -62,7 +73,7 @@ enum DotMotion {
     /// A firefly brightens and dims between its alpha and the glow floor,
     /// starting from `opacity` after a random wait, so fireflies glow out of step.
     static func glow(for pass: DotPass, from opacity: Float, on layer: CALayer) -> CAAnimation? {
-        guard let period = pass.glowPeriod, period > 0 else { return nil }
+        guard pass.glows, let period = pass.glowPeriod else { return nil }
         let dimmest = pass.alpha * DotPass.glowFloor
         let glow = CABasicAnimation(keyPath: "opacity")
         glow.fromValue = opacity
@@ -88,18 +99,35 @@ enum DotMotion {
         return fade
     }
 
-    /// Grows a little and settles while the look changes. It animates
+    /// Grows a little and settles to `size` while the look changes, starting
+    /// from `current` so a swell already under way doesn't snap. It animates
     /// bounds rather than transform so it never fights the turn.
-    static func swell(size: CGSize, beginTime: CFTimeInterval, duration: TimeInterval) -> CAKeyframeAnimation {
+    static func swell(from current: CGSize, to size: CGSize, beginTime: CFTimeInterval,
+                      duration: TimeInterval) -> CAKeyframeAnimation {
         let grown = CGSize(width: size.width * swellScale, height: size.height * swellScale)
         let swell = CAKeyframeAnimation(keyPath: "bounds.size")
-        swell.values = [size, grown, size].map { NSValue(size: $0) }
+        swell.values = [current, grown, size].map { NSValue(size: $0) }
         swell.keyTimes = [0, 0.4, 1]
         swell.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 2)
         swell.beginTime = beginTime
         swell.duration = duration
+        swell.fillMode = .backwards
         swell.preferredFrameRateRange = frameRates
         return swell
+    }
+
+    /// Eases from `angle` to the nearest upright, holding `angle` until
+    /// `beginTime`. The layer's own rotation should be upright.
+    static func settle(from angle: Double, beginTime: CFTimeInterval) -> CABasicAnimation {
+        let settle = CABasicAnimation(keyPath: rotationKey)
+        settle.fromValue = remainder(angle, 2 * .pi)
+        settle.toValue = 0
+        settle.beginTime = beginTime
+        settle.duration = settleSeconds
+        settle.fillMode = .backwards
+        settle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        settle.preferredFrameRateRange = frameRates
+        return settle
     }
 
     /// Zero, out to +amplitude, across to −amplitude and back to zero. The

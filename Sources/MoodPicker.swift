@@ -92,8 +92,11 @@ extension Mood {
 enum Holiday {
     case valentines, halloween, newYear, winterSolstice
 
+    /// Dates are Gregorian whatever the user's calendar; only its time zone counts.
     static func on(_ date: Date, calendar: Calendar) -> Holiday? {
-        let parts = calendar.dateComponents([.month, .day], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.month, .day], from: date)
         switch (parts.month, parts.day) {
         case (2, 14): return .valentines
         case (10, 31): return .halloween

@@ -1,4 +1,5 @@
 Sources/DotPass.swift
+Sources/DotMotion.swift
 Sources/DotLayout.swift
 Sources/Mood.swift
 Sources/MoodPicker.swift

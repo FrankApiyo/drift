@@ -1,4 +1,23 @@
+import AppKit
 import Carbon.HIToolbox
+
+/// A key combination, defined once for both the Carbon hot key and the
+/// key equivalent a menu item shows.
+struct Shortcut {
+    let keyCode: Int
+    let keyEquivalent: String
+    let modifiers: NSEvent.ModifierFlags
+
+    static let pauseToggle = Shortcut(keyCode: kVK_ANSI_D, keyEquivalent: "d", modifiers: [.control, .option, .command])
+
+    private static let carbonEquivalents: [(NSEvent.ModifierFlags, Int)] = [
+        (.control, controlKey), (.option, optionKey), (.command, cmdKey), (.shift, shiftKey),
+    ]
+
+    var carbonModifiers: UInt32 {
+        UInt32(Self.carbonEquivalents.filter { modifiers.contains($0.0) }.reduce(0) { $0 | $1.1 })
+    }
+}
 
 /// A system-wide keyboard shortcut. Carbon hot keys need no Accessibility or
 /// Input Monitoring permission, unlike global event monitors.
@@ -10,12 +29,11 @@ final class HotKey {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
 
-    /// ⌃⌥⌘D, shown on the menu's Pause item.
     static func pauseToggle(action: @escaping () -> Void) -> HotKey? {
-        HotKey(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(controlKey | optionKey | cmdKey), id: 1, action: action)
+        HotKey(.pauseToggle, id: 1, action: action)
     }
 
-    init?(keyCode: UInt32, modifiers: UInt32, id: UInt32, action: @escaping () -> Void) {
+    init?(_ shortcut: Shortcut, id: UInt32, action: @escaping () -> Void) {
         self.action = action
         self.id = id
         var pressed = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -24,7 +42,7 @@ final class HotKey {
             Unmanaged.passUnretained(self).toOpaque(), &handlerRef)
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         let registered = RegisterEventHotKey(
-            keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+            UInt32(shortcut.keyCode), shortcut.carbonModifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         guard installed == noErr, registered == noErr else {
             unregister()
             return nil

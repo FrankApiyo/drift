@@ -40,6 +40,12 @@ final class Dot: NSObject, CAAnimationDelegate {
                 y: trip?.y(at: CACurrentMediaTime()) ?? layer.position.y)
     }
 
+    private var currentAngle: Double {
+        let angle = layer.presentation()?.value(forKeyPath: DotMotion.rotationKey)
+            ?? layer.value(forKeyPath: DotMotion.rotationKey)
+        return (angle as? NSNumber)?.doubleValue ?? 0
+    }
+
     /// Reduce Motion drifts no faster than the Slower setting.
     private var effectiveSpeed: Double {
         reduceMotion ? min(speedFactor, DriftSpeed.slower.factor) : speedFactor
@@ -56,10 +62,9 @@ final class Dot: NSObject, CAAnimationDelegate {
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        let presentation = layer.presentation()
         let position = currentPosition
-        let angle = presentation?.value(forKeyPath: DotMotion.rotationKey) ?? layer.value(forKeyPath: DotMotion.rotationKey)
-        let opacity = presentation?.opacity ?? layer.opacity
+        let angle = currentAngle
+        let opacity = layer.presentation()?.opacity ?? layer.opacity
         trip = nil
         CATransaction.withoutActions {
             layer.position = position
@@ -85,8 +90,9 @@ final class Dot: NSObject, CAAnimationDelegate {
     }
 
     /// Cross-fades to a look from the new mood after `delay`, swelling a
-    /// little as it changes. The mood's pace and motion take over at the next
-    /// wrap, so speed never changes mid-trip.
+    /// little as it changes, from whatever is on screen now. The mood's pace
+    /// and motion take over at the next wrap, so speed never changes mid-trip;
+    /// only a turn that doesn't suit the new shape changes.
     func adopt(_ newMood: Mood, desktop: CGRect, after delay: TimeInterval, fadingOver duration: TimeInterval) {
         mood = newMood
         setup = setup.with(desktop: desktop)
@@ -94,17 +100,22 @@ final class Dot: NSObject, CAAnimationDelegate {
         let look = newMood.randomLook(
             oddOneOutChance: Mood.oddOneOutChance, desktopFraction: setup.desktopFraction(ofX: pass.x),
             softness: setup.tier.softness, using: &rng)
-        pass = pass.restyled(look)
+        let restyled = pass.restyled(look, using: &rng)
+        let turnChanges = restyled.turn != pass.turn
+        pass = restyled
         let image = DotImages.image(for: look)
         let begin = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
-        let fade = DotMotion.restyle(from: layer.contents, to: image, beginTime: begin, duration: duration)
-        let swell = DotMotion.swell(size: layer.bounds.size, beginTime: begin, duration: duration)
+        let shown = layer.presentation()
+        let fade = DotMotion.restyle(from: shown?.contents ?? layer.contents, to: image, beginTime: begin, duration: duration)
+        let swell = DotMotion.swell(from: shown?.bounds.size ?? layer.bounds.size, to: layer.bounds.size,
+                                    beginTime: begin, duration: duration)
 
         CATransaction.withoutActions {
             layer.contents = image
             layer.add(fade, forKey: DotMotion.restyleKey)
             layer.add(swell, forKey: DotMotion.swellKey)
         }
+        if turnChanges, isRunning, !reduceMotion { startTurn(at: begin) }
     }
 
     func animationDidStop(_ anim: CAAnimation, finished: Bool) {
@@ -130,18 +141,42 @@ final class Dot: NSObject, CAAnimationDelegate {
         let drift = DotMotion.drift(fromY: y, toY: toY, duration: duration)
         drift.delegate = self
         drift.setValue(tripID, forKey: Self.tripKey)
-        let glow = DotMotion.glow(for: pass, from: layer.opacity, on: layer)
-        let wobble = reduceMotion ? nil : DotMotion.wobble(for: pass, on: layer)
-        let turn = reduceMotion ? nil : DotMotion.turn(for: pass, on: layer)
+        let needed = DotMotion.neededKeys(for: pass, reduceMotion: reduceMotion)
+        let extras = needed.compactMap { key in extraMotion(forKey: key).map { (key, $0) } }
 
         CATransaction.withoutActions {
             layer.position.y = toY
+            DotMotion.keys.subtracting(needed).forEach(layer.removeAnimation(forKey:))
             layer.add(drift, forKey: DotMotion.driftKey)
-            wobble.map { layer.add($0, forKey: DotMotion.wobbleKey) }
-            turn.map { layer.add($0, forKey: DotMotion.turnKey) }
-            glow.map { layer.add($0, forKey: DotMotion.glowKey) }
+            extras.forEach { key, animation in layer.add(animation, forKey: key) }
         }
         trip = Trip(fromY: y, toY: toY, startTime: CACurrentMediaTime(), duration: duration)
+    }
+
+    /// Switches to the pass's turn as the new look arrives, from wherever the
+    /// dot faces now: a spin carries on from that angle, and anything else
+    /// first settles upright.
+    private func startTurn(at begin: CFTimeInterval) {
+        let angle = currentAngle
+        let spins = pass.turn.style == .spin
+        CATransaction.withoutActions {
+            layer.setValue(spins ? angle : 0, forKeyPath: DotMotion.rotationKey)
+            [DotMotion.turnKey, DotMotion.settleKey].forEach(layer.removeAnimation(forKey:))
+            if !spins { layer.add(DotMotion.settle(from: angle, beginTime: begin), forKey: DotMotion.settleKey) }
+            if let turn = DotMotion.turn(for: pass, on: layer) {
+                turn.beginTime = begin
+                layer.add(turn, forKey: DotMotion.turnKey)
+            }
+        }
+    }
+
+    private func extraMotion(forKey key: String) -> CAAnimation? {
+        switch key {
+        case DotMotion.wobbleKey: DotMotion.wobble(for: pass, on: layer)
+        case DotMotion.turnKey: DotMotion.turn(for: pass, on: layer)
+        case DotMotion.glowKey: DotMotion.glow(for: pass, from: layer.opacity, on: layer)
+        default: nil
+        }
     }
 
     private func show(_ pass: DotPass, atY y: CGFloat) {

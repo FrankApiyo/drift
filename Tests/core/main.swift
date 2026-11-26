@@ -47,15 +47,33 @@ func setup(
 
 // MARK: - Ordinary moods and passes
 
+/// Only `Mood.next`'s ordinary branch runs here: 14:00 brings no timed
+/// palette, 10 March 2026 is no holiday, focus is short of golden hour, the
+/// spectrum is used up and Reduce Motion is off. A full moon only counts in
+/// the evening.
+let ordinaryContext = MoodContext(
+    date: day(2026, 3, 10, 14), calendar: utc, focusedFor: 0, spectrumAvailable: false, reduceMotion: false)
+check(Holiday.on(ordinaryContext.date, calendar: utc) == nil
+      && !MoonPhase.isFullMoonEvening(ordinaryContext.date, calendar: utc)
+      && Palette.timed(atHour: 14).isEmpty, "fixture: the ordinary context has no holiday, full moon or timed palette")
+
+/// Snow and confetti bring their own palette, and confetti every shape.
+func keepsItsPalette(_ mood: Mood) -> Bool {
+    mood.motion != .snow && mood.motion != .confetti
+}
+
 var mood = Mood.calm
 for round in 0..<2000 {
     if round % 50 == 0 {
-        let next = Mood.random(after: mood, using: &rng)
-        check(next.palette != mood.palette, "a new mood brings a new palette")
-        check(Mood.shapeCounts.contains(next.shapes.count), "mood has \(next.shapes.count) shapes")
+        let next = Mood.next(after: mood, context: ordinaryContext, using: &rng)
+        check(next.event == nil, "an ordinary context brings no event")
+        check(next.palette != mood.palette || next.motion == .snow, "a new mood brings a new palette")
+        check(Mood.shapeCounts.contains(next.shapes.count) || next.motion == .confetti,
+              "mood has \(next.shapes.count) shapes")
         check(Set(next.shapes).count == next.shapes.count, "mood shapes are distinct")
         check(Mood.paces.contains(next.pace), "mood pace \(next.pace) in range")
-        mood = next
+        // The pass checks below are for plain drift.
+        if next.motion == .drift { mood = next }
     }
     for direction in [DotPass.Direction.up, .down] {
         let tier = DepthTier.allCases[round % DepthTier.allCases.count]
@@ -90,16 +108,15 @@ for round in 0..<2000 {
     }
 }
 
-var brightMoods = 0
-var moodShapes = Set<DotShape>()
+var ordinaryMoods: [Mood] = []
 var previous = Mood.calm
 for _ in 0..<4000 {
-    let next = Mood.random(after: previous, using: &rng)
-    brightMoods += next.palette.isBright ? 1 : 0
-    moodShapes.formUnion(next.shapes)
-    previous = next
+    previous = Mood.next(after: previous, context: ordinaryContext, using: &rng)
+    ordinaryMoods.append(previous)
 }
-let brightShare = Double(brightMoods) / 4000
+let paletteKeepers = ordinaryMoods.filter(keepsItsPalette)
+let brightShare = Double(paletteKeepers.filter(\.palette.isBright).count) / Double(paletteKeepers.count)
+let moodShapes = Set(paletteKeepers.flatMap(\.shapes))
 check(abs(brightShare - Mood.brightChance) < 0.05, "bright moods come up about \(Mood.brightChance) of the time, got \(brightShare)")
 check(moodShapes == Set(DotShape.allCases), "moods use every shape over time")
 check(Palette.all.contains { $0.isBright } && Palette.all.contains { !$0.isBright }, "there are bright and soft palettes")
@@ -124,7 +141,7 @@ check(accentShare > 0.1 && accentShare < 0.4, "two-tone looks are a minority, go
 
 let original = DotPass.random(setup(), mood: .calm, oddOneOutChance: 0, using: &rng)
 let newLook = DotLook(shape: .star, color: Palette.all[1].colors[0])
-let restyled = original.restyled(newLook)
+let restyled = original.restyled(newLook, using: &rng)
 check(restyled.look == newLook, "restyle changes the look")
 check(restyled.diameter == original.diameter && restyled.x == original.x
       && restyled.pointsPerSecond == original.pointsPerSecond, "restyle keeps size, place and speed")
@@ -159,6 +176,10 @@ check(DepthTier.far.alphas.upperBound < DepthTier.mid.alphas.upperBound
 check(DepthTier.far.wobbleFactor < DepthTier.mid.wobbleFactor, "far dots wobble less")
 check(DepthTier.far.zPosition < DepthTier.mid.zPosition && DepthTier.mid.zPosition < DepthTier.near.zPosition,
       "near dots draw over far ones")
+for (back, front) in [(DepthTier.far, DepthTier.mid), (.mid, .near)] {
+    let between = DepthTier.zPosition(between: back, and: front)
+    check(back.zPosition < between && between < front.zPosition, "a visitor can pass between \(back) and \(front) dots")
+}
 check(DepthTier.near.softness == .verySoft && DepthTier.far.softness == .soft && DepthTier.mid.softness == .normal,
       "far and near looks are softer")
 
@@ -204,6 +225,51 @@ for shape in [DotShape.heart, .moon, .triangle, .petal, .capsule, .squiggle] {
         check(false, "\(shape) rocks instead of spinning")
     }
 }
+
+// MARK: - Motion each pass needs
+
+func drawPass(_ shape: DotShape, motion: MotionStyle = .drift) -> DotPass {
+    DotPass.random(setup(), mood: Mood(palette: .meadow, shapes: [shape], pace: 1, motion: motion),
+                   oddOneOutChance: 0, using: &rng)
+}
+let fireflyStar = drawPass(.star, motion: .fireflies)
+let plainCircle = drawPass(.circle)
+let plainStar = drawPass(.star)
+check(fireflyStar.glowPeriod != nil && fireflyStar.wobbleAmplitude > 0 && fireflyStar.turn != .still,
+      "fixture: a firefly star glows, sways and turns")
+check(plainCircle.glowPeriod == nil && plainCircle.wobbleAmplitude > 0 && plainCircle.turn == .still,
+      "fixture: a plain circle sways but neither glows nor turns")
+check(DotMotion.neededKeys(for: fireflyStar, reduceMotion: false)
+      == [DotMotion.driftKey, DotMotion.wobbleKey, DotMotion.turnKey, DotMotion.glowKey],
+      "a firefly star needs every motion")
+check(DotMotion.neededKeys(for: plainCircle, reduceMotion: false) == [DotMotion.driftKey, DotMotion.wobbleKey],
+      "a plain circle after a firefly pass needs no glow and no turn")
+check(DotMotion.neededKeys(for: plainStar, reduceMotion: true) == [DotMotion.driftKey], "Reduce Motion needs only drift")
+check(DotMotion.neededKeys(for: fireflyStar, reduceMotion: true) == [DotMotion.driftKey, DotMotion.glowKey],
+      "Reduce Motion keeps a firefly's glow, which doesn't move it")
+check([fireflyStar, plainCircle, plainStar].allSatisfy {
+    DotMotion.neededKeys(for: $0, reduceMotion: false).isSubset(of: DotMotion.keys)
+}, "every needed key is one that stop() removes")
+
+// MARK: - Restyled turns
+
+let spinningStar = drawPass(.star)
+let rockingHeart = drawPass(.heart)
+let tumblingHeart = drawPass(.heart, motion: .confetti)
+check(spinningStar.turn.style == .spin && rockingHeart.turn.style == .rock && tumblingHeart.turn.style == .spin,
+      "fixture: a star spins, a heart rocks, a confetti heart spins")
+func restyle(_ original: DotPass, to shape: DotShape) -> DotPass {
+    original.restyled(DotLook(shape: shape, color: original.look.color), using: &rng)
+}
+check(restyle(spinningStar, to: .heart).turn.style == .rock, "a star that becomes a heart rocks instead of spinning")
+check(restyle(spinningStar, to: .circle).turn == .still, "a star that becomes a circle stops turning")
+check(restyle(spinningStar, to: .sparkle).turn == spinningStar.turn, "a star that becomes a sparkle keeps its spin")
+check(restyle(rockingHeart, to: .moon).turn == rockingHeart.turn, "a heart that becomes a moon keeps its rocking")
+check(restyle(rockingHeart, to: .star).turn.style == .spin, "a heart that becomes a star spins")
+if case let .spin(period, _) = restyle(rockingHeart, to: .star).turn {
+    check(DotPass.spinPeriods.contains(period), "a restyled star spins at drift speed, period \(period)")
+}
+check(restyle(tumblingHeart, to: .moon).turn == tumblingHeart.turn, "confetti keeps tumbling as its shape changes")
 
 // MARK: - Special motion
 

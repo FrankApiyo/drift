@@ -41,7 +41,8 @@ at Login. The menu has:
 - **Now**: the current mood's name and shapes
 - **New Mood**: change the mood right away
 - **Pause / Resume** (⌃⌥⌘D from any app): the dots fade out and stop, then
-  fade back in
+  fade back in. If another app already uses ⌃⌥⌘D, the shortcut isn't
+  available and the menu doesn't show it.
 - **Layer**: Behind windows (just above the wallpaper) or Over windows
   (above everything, fainter). Both ignore clicks.
 - **Number of dots**: Few (15), Some (25) or Many (40) per screen

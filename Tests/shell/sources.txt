@@ -5,3 +5,4 @@ Sources/Sightings.swift
 Sources/FocusClock.swift
 Sources/SpectrumDay.swift
 Sources/RunState.swift
+Sources/HotKey.swift

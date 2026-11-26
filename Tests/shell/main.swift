@@ -1,5 +1,6 @@
 // Plain assertions for the app's pure logic around the dots. Listed sources come from sources.txt.
-import Foundation
+import AppKit
+import Carbon.HIToolbox
 
 var failures = 0
 func check(_ condition: Bool, _ message: String, line: Int = #line) {
@@ -26,10 +27,17 @@ do {
     check(!Settings().hasWelcomed, "a fresh install hasn't been welcomed")
 
     let defaults = freshDefaults()
-    let welcomed = Settings().with(\.hasWelcomed, true)
-    welcomed.save(to: defaults)
-    check(Settings.load(from: defaults).hasWelcomed, "the welcome flag survives a save and load")
-    check(Settings.load(from: defaults) == welcomed, "all settings survive a save and load")
+    let fallback = Settings()
+    let changed = Settings(
+        layer: .over, count: .many, speed: .faster, opacity: .visible,
+        pauseInLowPowerMode: false, hasWelcomed: true)
+    check(
+        changed.layer != fallback.layer && changed.count != fallback.count && changed.speed != fallback.speed
+            && changed.opacity != fallback.opacity && changed.pauseInLowPowerMode != fallback.pauseInLowPowerMode
+            && changed.hasWelcomed != fallback.hasWelcomed,
+        "the saved settings differ from the defaults in every field")
+    changed.save(to: defaults)
+    check(Settings.load(from: defaults) == changed, "all settings survive a save and load")
 }
 
 // MARK: - Sightings
@@ -129,25 +137,26 @@ do {
 
 do {
     let clear = RunState(isUserPaused: false, systemPauses: [], lowPowerPause: false, anyWindowVisible: true)
-    check(clear.shouldAnimate && clear.pauseReason == nil, "nothing paused means animating")
+    check(clear.isUnpaused && clear.isVisiblyAnimating, "nothing paused means animating")
+    check(clear.pauseReason == nil, "nothing paused has no pause reason")
     check(RunState.tooltip(for: nil) == "Drift", "an animating icon is plainly named")
 
     let locked = RunState(isUserPaused: false, systemPauses: [.screenLocked, .displaysAsleep], lowPowerPause: false, anyWindowVisible: true)
-    let lowPowerOnly = RunState(isUserPaused: true, systemPauses: [], lowPowerPause: true, anyWindowVisible: true)
     let user = RunState(isUserPaused: true, systemPauses: [.screenLocked], lowPowerPause: true, anyWindowVisible: false)
-    check(!user.shouldAnimate, "a user pause stops animation")
+    check(!user.isUnpaused && !user.isVisiblyAnimating, "a user pause stops animation")
     check(user.pauseReason == .user, "a user pause names itself first")
     let userOnly = RunState(isUserPaused: true, systemPauses: [], lowPowerPause: false, anyWindowVisible: true)
     check(userOnly.systemAllowsMotion, "a user pause alone leaves the system allowing motion")
-    check(!user.systemAllowsMotion, "a system pause stops motion even while fading out")
-    check(!lowPowerOnly.systemAllowsMotion, "low power stops motion even while fading out")
+    check(!locked.isUnpaused, "a system pause counts as paused")
 
     let fading = RunState(isUserPaused: true, isFadingOut: true, systemPauses: [], lowPowerPause: false, anyWindowVisible: true)
     check(fading.motionAllowed, "dots keep moving while a pause fades them out")
     check(fading.pauseReason == .user, "a fading pause already reports as paused")
     check(!userOnly.motionAllowed, "dots stop once the pause fade ends")
+    let fadingWhileLocked = RunState(isUserPaused: true, isFadingOut: true, systemPauses: [.screenLocked], lowPowerPause: false, anyWindowVisible: true)
+    check(fadingWhileLocked.isFadingOut && !fadingWhileLocked.motionAllowed, "a system pause stops motion even while fading out")
     let fadingInLowPower = RunState(isUserPaused: true, isFadingOut: true, systemPauses: [], lowPowerPause: true, anyWindowVisible: true)
-    check(!fadingInLowPower.motionAllowed, "a fade never restarts dots a system pause stopped")
+    check(fadingInLowPower.isFadingOut && !fadingInLowPower.motionAllowed, "low power stops motion even while fading out")
     check(clear.motionAllowed, "unpaused dots move")
     check(!locked.motionAllowed, "a system pause stops dots at once")
     check(RunState.tooltip(for: .user) == "Drift — paused", "a user pause has a plain tooltip")
@@ -159,8 +168,22 @@ do {
     check(locked.pauseReason == .screenLocked, "a locked screen outranks sleeping displays")
 
     let hidden = RunState(isUserPaused: false, systemPauses: [], lowPowerPause: false, anyWindowVisible: false)
-    check(hidden.shouldAnimate, "being out of sight isn't a system-wide pause")
+    check(hidden.isUnpaused, "being out of sight isn't a system-wide pause")
+    check(!hidden.isVisiblyAnimating, "being out of sight stops visible animation")
     check(hidden.pauseReason == .outOfSight, "being out of sight still counts as paused")
+}
+
+// MARK: - Shortcut
+
+do {
+    let pause = Shortcut.pauseToggle
+    check(pause.modifiers == [.control, .option, .command], "the pause shortcut is control-option-command")
+    check(
+        pause.carbonModifiers == UInt32(controlKey | optionKey | cmdKey),
+        "the hot key registers the same modifiers the menu shows")
+    check(
+        Shortcut(keyCode: 0, keyEquivalent: "a", modifiers: [.shift]).carbonModifiers == UInt32(shiftKey),
+        "shift maps to its Carbon modifier")
 }
 
 print(failures == 0 ? "All shell checks passed" : "\(failures) shell check(s) failed")

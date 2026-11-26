@@ -7,8 +7,15 @@ enum VisitorKind: Equatable {
 
     static let chance = 1.0 / 15
 
-    var durations: ClosedRange<TimeInterval> {
-        self == .shootingStar ? 8...10 : 60...90
+    var appearance: VisitorAppearance {
+        switch self {
+        case .shootingStar:
+            VisitorAppearance(size: CGSize(width: 128, height: 16), pixels: (256, 32), durations: 8...10,
+                              peakOpacity: 0.7, brightBetween: 0.25...0.7, facesAlongPath: true)
+        case .lantern:
+            VisitorAppearance(size: CGSize(width: 40, height: 40), pixels: (96, 96), durations: 60...90,
+                              peakOpacity: 0.6, brightBetween: 0.1...0.9, facesAlongPath: false)
+        }
     }
 
     /// Called once per mood change, which comes every 2–5 minutes, so a
@@ -23,21 +30,31 @@ enum VisitorKind: Equatable {
     }
 }
 
+struct VisitorAppearance {
+    /// In points.
+    let size: CGSize
+    let pixels: (width: Int, height: Int)
+    let durations: ClosedRange<TimeInterval>
+    let peakOpacity: Float
+    /// The part of the flight, from 0 to 1, spent at full brightness.
+    let brightBetween: ClosedRange<Double>
+    let facesAlongPath: Bool
+}
+
 /// A visitor's route across one screen: a quadratic curve in layer
 /// coordinates (y = 0 at the bottom).
 struct VisitorPath {
-    static let lanternSize: CGFloat = 40
-
     let start: CGPoint
     let control: CGPoint
     let end: CGPoint
     let duration: TimeInterval
 
     static func random<R: RandomNumberGenerator>(for kind: VisitorKind, area: CGSize, using rng: inout R) -> VisitorPath {
-        let duration = TimeInterval.random(in: kind.durations, using: &rng)
-        return kind == .shootingStar
-            ? shootingStar(area: area, duration: duration, using: &rng)
-            : lantern(area: area, duration: duration, using: &rng)
+        let duration = TimeInterval.random(in: kind.appearance.durations, using: &rng)
+        switch kind {
+        case .shootingStar: return shootingStar(area: area, duration: duration, using: &rng)
+        case .lantern: return lantern(area: area, duration: duration, using: &rng)
+        }
     }
 
     /// A shallow downward glide across part of the upper screen.
@@ -58,10 +75,11 @@ struct VisitorPath {
     private static func lantern<R: RandomNumberGenerator>(
         area: CGSize, duration: TimeInterval, using rng: inout R
     ) -> VisitorPath {
+        let height = VisitorKind.lantern.appearance.size.height
         let startX = area.width * .random(in: 0.15...0.85, using: &rng)
         let lean = area.width * .random(in: -0.08...0.08, using: &rng)
-        let start = CGPoint(x: startX, y: -lanternSize)
-        let end = CGPoint(x: startX + lean, y: area.height + lanternSize)
+        let start = CGPoint(x: startX, y: -height)
+        let end = CGPoint(x: startX + lean, y: area.height + height)
         let control = CGPoint(x: startX - lean, y: area.height / 2)
         return VisitorPath(start: start, control: control, end: end, duration: duration)
     }

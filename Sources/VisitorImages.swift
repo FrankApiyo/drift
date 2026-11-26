@@ -4,24 +4,24 @@ import CoreGraphics
 enum VisitorImages {
     private static var cache: [VisitorKind: CGImage] = [:]
 
-    static let shootingStarPixels = (width: 256, height: 32)
-    static let lanternPixels = 96
-
     private static let starlight = RGB(red: 1.0, green: 0.97, blue: 0.9)
     private static let lanternCore = RGB(red: 1.0, green: 0.86, blue: 0.56)
     private static let lanternEdge = RGB(red: 1.0, green: 0.66, blue: 0.32)
 
     static func image(for kind: VisitorKind) -> CGImage? {
         if let cached = cache[kind] { return cached }
-        let image = kind == .shootingStar ? renderShootingStar() : renderLantern()
+        let pixels = kind.appearance.pixels
+        let image = switch kind {
+        case .shootingStar: renderShootingStar(width: pixels.width, height: pixels.height)
+        case .lantern: renderLantern(width: pixels.width, height: pixels.height)
+        }
         cache[kind] = image
         return image
     }
 
     /// A dim sparkle at the right end with a soft tail fading off to the left.
-    private static func renderShootingStar() -> CGImage? {
-        let (width, height) = shootingStarPixels
-        return Bitmap.render(width: width, height: height) { context, space in
+    private static func renderShootingStar(width: Int, height: Int) -> CGImage? {
+        Bitmap.render(width: width, height: height) { context, space in
             let half = CGFloat(height) / 2
             let head = CGPoint(x: CGFloat(width) - half, y: half)
             let light = Bitmap.color(starlight)
@@ -45,16 +45,15 @@ enum VisitorImages {
     }
 
     /// A warm glow, bright in the middle and fading to nothing at the edge.
-    private static func renderLantern() -> CGImage? {
-        let size = lanternPixels
-        return Bitmap.render(width: size, height: size) { context, space in
+    private static func renderLantern(width: Int, height: Int) -> CGImage? {
+        Bitmap.render(width: width, height: height) { context, space in
             let colors = [
                 Bitmap.color(lanternCore), Bitmap.color(lanternEdge, alpha: 0.5), Bitmap.color(lanternEdge, alpha: 0),
             ] as CFArray
             guard let glow = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.3, 1]) else { return }
-            let center = CGPoint(x: CGFloat(size) / 2, y: CGFloat(size) / 2)
+            let center = CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
             context.drawRadialGradient(glow, startCenter: center, startRadius: 0, endCenter: center,
-                                       endRadius: CGFloat(size) / 2, options: [])
+                                       endRadius: CGFloat(min(width, height)) / 2, options: [])
         }
     }
 }

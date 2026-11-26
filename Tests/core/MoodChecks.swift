@@ -81,7 +81,8 @@ func checkMoodSelectionAndVisitors() {
         let moods = draw(3000, context(date))
         check(near(eventShare(event, in: moods), 1.0 / 3, within: 0.05), "\(event) is about 1 in 3 on its day, got \(eventShare(event, in: moods))")
         check(moods.allSatisfy { $0.event == nil || $0.event == event }, "only \(event) on its day")
-        check(draw(300, context(date.addingTimeInterval(86400 * 3))).allSatisfy { $0.event == nil }, "no \(event) three days later")
+        // Other events may fall three days later (24 December 2026 is a full moon), so only this one is ruled out.
+        check(draw(300, context(date.addingTimeInterval(86400 * 3))).allSatisfy { $0.event != event }, "no \(event) three days later")
         let special = moods.filter { $0.event == event }
         switch event {
         case .valentines:
@@ -97,6 +98,15 @@ func checkMoodSelectionAndVisitors() {
             }, "the solstice is Frost snow in sparkles, flowers and hexagons")
         }
     }
+
+    var persian = Calendar(identifier: .persian)
+    persian.timeZone = utc.timeZone
+    check(persian.component(.month, from: day(2026, 2, 14, 10)) != 2, "fixture: the Persian calendar's months differ")
+    check(Holiday.on(day(2026, 2, 14, 10), calendar: persian) == .valentines,
+          "a non-Gregorian calendar still finds Valentine's Day")
+    var tokyo = utc
+    tokyo.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+    check(Holiday.on(day(2026, 10, 30, 20), calendar: tokyo) == .halloween, "holidays follow the calendar's time zone")
 
     let fullMoonNight = draw(3000, context(day(2026, 11, 24, 21)))
     check(near(eventShare(.fullMoon, in: fullMoonNight), 1.0 / 3, within: 0.05), "some full moon evening moods are the full moon")
@@ -154,7 +164,7 @@ func checkMoodSelectionAndVisitors() {
     }
     for _ in 0..<200 {
         let star = VisitorPath.random(for: .shootingStar, area: area, using: &rng)
-        check(VisitorKind.shootingStar.durations.contains(star.duration) && star.duration >= 8 && star.duration <= 10,
+        check(VisitorKind.shootingStar.appearance.durations.contains(star.duration) && star.duration >= 8 && star.duration <= 10,
               "a shooting star takes 8–10 s")
         check([star.start, star.control, star.end].allSatisfy { screen.contains($0) }, "a shooting star stays on screen")
         check(abs(star.end.y - star.start.y) < abs(star.end.x - star.start.x) * 0.5, "a shooting star's arc is shallow")
