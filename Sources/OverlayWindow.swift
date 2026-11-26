@@ -20,6 +20,9 @@ final class OverlayWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
         ignoresMouseEvents = true
+        // Clicks pass through, but a window on top still gets mouse-moved
+        // events for cursor tracking. It never shows a cursor, so opt out.
+        disableCursorRects()
         isReleasedWhenClosed = false
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
