@@ -170,11 +170,24 @@ do {
     check(RunState.tooltip(for: .lowPowerMode) == "Drift — paused (Low Power Mode)", "low power tooltip")
 
     check(locked.pauseReason == .screenLocked, "a locked screen outranks sleeping displays")
+    check(RunState.tooltip(for: .screenLocked) == "Drift — paused (screen locked)", "locked screen tooltip")
+
+    let otherUser = RunState(isUserPaused: false, systemPauses: [.sessionInactive, .displaysAsleep], lowPowerPause: false, anyWindowVisible: true)
+    check(otherUser.pauseReason == .sessionInactive, "another user being active outranks sleeping displays")
+    check(RunState.tooltip(for: .sessionInactive) == "Drift — paused (another user is active)", "another user tooltip")
+
+    let asleep = RunState(isUserPaused: false, systemPauses: [.displaysAsleep], lowPowerPause: true, anyWindowVisible: true)
+    check(asleep.pauseReason == .displaysAsleep, "sleeping displays outrank Low Power Mode")
+    check(RunState.tooltip(for: .displaysAsleep) == "Drift — paused (displays asleep)", "sleeping displays tooltip")
+
+    let lowPowerHidden = RunState(isUserPaused: false, systemPauses: [], lowPowerPause: true, anyWindowVisible: false)
+    check(lowPowerHidden.pauseReason == .lowPowerMode, "Low Power Mode outranks being out of sight")
 
     let hidden = RunState(isUserPaused: false, systemPauses: [], lowPowerPause: false, anyWindowVisible: false)
     check(hidden.isUnpaused, "being out of sight isn't a system-wide pause")
     check(!hidden.isVisiblyAnimating, "being out of sight stops visible animation")
     check(hidden.pauseReason == .outOfSight, "being out of sight still counts as paused")
+    check(RunState.tooltip(for: .outOfSight) == "Drift — paused (out of sight)", "out of sight tooltip")
 }
 
 // MARK: - Shortcut

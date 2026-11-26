@@ -113,15 +113,18 @@ struct DotPass {
         }
     }
 
-    /// Keeps the turn while it suits the new shape, so a running spin or
-    /// rock carries on; otherwise draws one that does.
-    func restyled<R: RandomNumberGenerator>(_ newLook: DotLook, using rng: inout R) -> DotPass {
+    /// Keeps the turn, which only changes at a wrap. A new shape that turns
+    /// another way waits for the wrap too; until then the dot keeps its
+    /// shape and takes only the new look's colours.
+    func restyled(_ newLook: DotLook) -> DotPass {
         let suits = turn.style == Self.effectiveTurnStyle(for: newLook.shape, motion: motion)
+        let shown = suits
+            ? newLook
+            : DotLook(shape: look.shape, color: newLook.color, accent: newLook.accent, softness: newLook.softness)
         return DotPass(
-            direction: direction, x: x, diameter: diameter, look: newLook, alpha: alpha,
+            direction: direction, x: x, diameter: diameter, look: shown, alpha: alpha,
             pointsPerSecond: pointsPerSecond, wobbleAmplitude: wobbleAmplitude, wobblePeriod: wobblePeriod,
-            turn: suits ? turn : Self.randomTurn(for: newLook.shape, motion: motion, using: &rng),
-            motion: motion, glowPeriod: glowPeriod)
+            turn: turn, motion: motion, glowPeriod: glowPeriod)
     }
 
     /// Off-screen y where the dot enters. Layer coordinates put y = 0 at the bottom.

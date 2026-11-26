@@ -12,6 +12,7 @@ protocol MenuController: AnyObject {
     func newMood()
     func update(_ settings: Settings)
     func toggleLaunchAtLogin()
+    func menuWillOpen()
 }
 
 /// The menu bar icon and its menu. Items are rebuilt each time the menu opens,
@@ -46,6 +47,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func show(pauseReason: PauseReason?) {
         statusItem.button?.appearsDisabled = pauseReason != nil
         statusItem.button?.toolTip = RunState.tooltip(for: pauseReason)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        controller?.menuWillOpen()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

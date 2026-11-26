@@ -41,7 +41,8 @@ at Login. The menu has:
 - **Now**: the current mood's name and shapes
 - **New Mood**: change the mood right away
 - **Pause / Resume** (⌃⌥⌘D from any app): the dots fade out and stop, then
-  fade back in. If another app also uses ⌃⌥⌘D, both respond.
+  fade back in. Drift takes ⌃⌥⌘D while it runs; if another app has already
+  claimed it, the menu shows Pause without a shortcut.
 - **Layer**: Behind windows (just above the wallpaper) or Over windows
   (above everything, fainter). Both ignore clicks.
 - **Number of dots**: Few (15), Some (25) or Many (40) per screen

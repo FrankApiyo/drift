@@ -91,9 +91,9 @@ final class Dot: NSObject, CAAnimationDelegate {
     }
 
     /// Cross-fades to a look from the new mood after `delay`, swelling a
-    /// little as it changes, from whatever is on screen now. The mood's pace
-    /// and motion take over at the next wrap, so speed never changes mid-trip;
-    /// only a turn that doesn't suit the new shape changes.
+    /// little as it changes, from whatever is on screen now. The mood's pace,
+    /// motion and turns take over at the next wrap, so neither speed nor
+    /// turn changes mid-trip.
     func adopt(_ newMood: Mood, desktop: CGRect, after delay: TimeInterval, fadingOver duration: TimeInterval) {
         mood = newMood
         setup = setup.with(desktop: desktop)
@@ -101,11 +101,9 @@ final class Dot: NSObject, CAAnimationDelegate {
         let look = newMood.randomLook(
             oddOneOutChance: oddOneOutChance, desktopFraction: setup.desktopFraction(ofX: pass.x),
             softness: setup.tier.softness, using: &rng)
-        let restyled = pass.restyled(look, using: &rng)
-        let turnChanges = restyled.turn != pass.turn
-        pass = restyled
-        let image = DotImages.image(for: look)
-        let begin = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        pass = pass.restyled(look)
+        let image = DotImages.image(for: pass.look)
+        let begin = DotMotion.now(on: layer) + delay
         let shown = layer.presentation()
         let fade = DotMotion.restyle(from: shown?.contents ?? layer.contents, to: image, beginTime: begin, duration: duration)
         let swell = DotMotion.swell(from: shown?.bounds.size ?? layer.bounds.size, to: layer.bounds.size,
@@ -116,7 +114,6 @@ final class Dot: NSObject, CAAnimationDelegate {
             layer.add(fade, forKey: DotMotion.restyleKey)
             layer.add(swell, forKey: DotMotion.swellKey)
         }
-        if turnChanges, isRunning { startTurn(at: begin) }
     }
 
     func animationDidStop(_ anim: CAAnimation, finished: Bool) {
@@ -143,29 +140,16 @@ final class Dot: NSObject, CAAnimationDelegate {
         drift.delegate = self
         drift.setValue(tripID, forKey: Self.tripKey)
         let motions = DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion)
+        let settle = DotMotion.standUpright(layer, for: pass)
 
         CATransaction.withoutActions {
             layer.position.y = toY
-            if pass.turn.style != .spin { layer.setValue(0, forKeyPath: DotMotion.rotationKey) }
             DotMotion.keys.forEach(layer.removeAnimation(forKey:))
             layer.add(drift, forKey: DotMotion.driftKey)
+            settle.map { layer.add($0, forKey: DotMotion.settleKey) }
             motions.forEach { key, animation in layer.add(animation, forKey: key) }
         }
         trip = Trip(fromY: y, toY: toY, startTime: CACurrentMediaTime(), duration: duration)
-    }
-
-    /// Eases upright now, so a turn never stops dead while the new look is
-    /// on its way, and starts the pass's turn as that look arrives.
-    private func startTurn(at begin: CFTimeInterval) {
-        let settle = DotMotion.settle(from: currentAngle, beginTime: layer.convertTime(CACurrentMediaTime(), from: nil))
-        let turn = reduceMotion ? nil : DotMotion.turn(for: pass)
-        turn?.beginTime = begin
-        CATransaction.withoutActions {
-            layer.setValue(0, forKeyPath: DotMotion.rotationKey)
-            [DotMotion.turnKey, DotMotion.settleKey].forEach(layer.removeAnimation(forKey:))
-            layer.add(settle, forKey: DotMotion.settleKey)
-            turn.map { layer.add($0, forKey: DotMotion.turnKey) }
-        }
     }
 
     private func show(_ pass: DotPass, atY y: CGFloat) {
@@ -176,8 +160,7 @@ final class Dot: NSObject, CAAnimationDelegate {
             layer.position = CGPoint(x: pass.x, y: y)
             layer.opacity = pass.alpha
             layer.contents = DotImages.image(for: pass.look)
-            // Off screen, so shapes with an up can be set upright unseen.
-            if pass.turn.style != .spin { layer.setValue(0, forKeyPath: DotMotion.rotationKey) }
+            layer.setValue(0, forKeyPath: DotMotion.rotationKey)
         }
     }
 

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
 
     private var systemPauses: Set<SystemPause> = []
     private var windows: [OverlayWindow] = []
+    private var screenLayout: [ScreenLayout] = []
     private var statusMenu: StatusMenu?
     private var systemEvents: SystemEvents?
     private var hotKey: HotKey?
@@ -82,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         }
     }
 
+    func menuWillOpen() {
+        welcome?.close()
+    }
+
     // MARK: - Running state
 
     private var runState: RunState {
@@ -112,7 +117,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         updateRunning()
     }
 
+    /// Moving the Dock or the menu bar also posts a screen change; only a new layout needs new windows.
+    private func screensChanged() {
+        guard ScreenLayout.current != screenLayout else { return }
+        rebuildWindows()
+    }
+
     private func rebuildWindows() {
+        screenLayout = ScreenLayout.current
         windows.forEach { $0.close() }
         windows = NSScreen.screens.map { OverlayWindow(screen: $0, settings: settings, mood: moods.mood) }
         windows.forEach { window in
@@ -130,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         SystemEventHandlers(
             pause: { [weak self] reason, active in self?.setSystemPause(reason, active: active) },
             powerStateChanged: { [weak self] in self?.updateRunning() },
-            screensChanged: { [weak self] in self?.rebuildWindows() },
+            screensChanged: { [weak self] in self?.screensChanged() },
             woke: { [weak self] in self?.moods.woke() },
             reduceMotionChanged: { [weak self] in self?.applyReduceMotion() })
     }
@@ -178,5 +190,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
             NSApp.activate(ignoringOtherApps: true)
         }
         alert.runModal()
+        // Drift has no window to keep, so the app that was in front gets the keyboard back.
+        NSApp.deactivate()
+    }
+}
+
+/// What an overlay window is built from.
+private struct ScreenLayout: Equatable {
+    let frame: NSRect
+    let scale: CGFloat
+
+    static var current: [ScreenLayout] {
+        NSScreen.screens.map { ScreenLayout(frame: $0.frame, scale: $0.backingScaleFactor) }
     }
 }

@@ -141,8 +141,8 @@ let accentShare = Double(accentLooks) / 2000
 check(accentShare > 0.1 && accentShare < 0.4, "two-tone looks are a minority, got \(accentShare)")
 
 let original = DotPass.random(setup(), mood: .calm, oddOneOutChance: 0, using: &rng)
-let newLook = DotLook(shape: .star, color: Palette.all[1].colors[0])
-let restyled = original.restyled(newLook, using: &rng)
+let newLook = DotLook(shape: original.look.shape, color: Palette.all[1].colors[0])
+let restyled = original.restyled(newLook)
 check(restyled.look == newLook, "restyle changes the look")
 check(restyled.diameter == original.diameter && restyled.x == original.x
       && restyled.pointsPerSecond == original.pointsPerSecond, "restyle keeps size, place and speed")
@@ -240,24 +240,18 @@ check(fireflyStar.glowPeriod != nil && fireflyStar.wobbleAmplitude > 0 && firefl
       "fixture: a firefly star glows, sways and turns")
 check(plainCircle.glowPeriod == nil && plainCircle.wobbleAmplitude > 0 && plainCircle.turn == .still,
       "fixture: a plain circle sways but neither glows nor turns")
-func motionKeys(_ pass: DotPass, reduceMotion: Bool = false, angle: Double = 0) -> [String] {
-    let layer = CALayer()
-    layer.setValue(angle, forKeyPath: DotMotion.rotationKey)
-    return DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion).map(\.key)
+func motionKeys(_ pass: DotPass, reduceMotion: Bool = false) -> Set<String> {
+    Set(DotMotion.motions(for: pass, on: CALayer(), reduceMotion: reduceMotion).map(\.key))
 }
-check(Set(motionKeys(fireflyStar)) == [DotMotion.wobbleKey, DotMotion.turnKey, DotMotion.glowKey],
-      "a firefly star needs every motion but a settle")
+check(motionKeys(fireflyStar) == [DotMotion.wobbleKey, DotMotion.turnKey, DotMotion.glowKey],
+      "a firefly star needs every motion")
 check(motionKeys(plainCircle) == [DotMotion.wobbleKey], "a plain circle after a firefly pass needs no glow and no turn")
 check(motionKeys(plainStar, reduceMotion: true).isEmpty, "Reduce Motion needs only drift")
 check(motionKeys(fireflyStar, reduceMotion: true) == [DotMotion.glowKey],
       "Reduce Motion keeps a firefly's glow, which doesn't move it")
-check(motionKeys(plainStar, angle: 2.9) == [DotMotion.wobbleKey, DotMotion.turnKey], "a star spins on from any angle")
-check(motionKeys(drawPass(.heart), angle: 2.9) == [DotMotion.settleKey, DotMotion.wobbleKey, DotMotion.turnKey],
-      "a tilted heart settles upright under its rock")
-check(motionKeys(plainCircle, reduceMotion: true, angle: 0.3) == [DotMotion.settleKey],
-      "Reduce Motion still brings a tilted shape upright")
-check([fireflyStar, plainCircle, plainStar].allSatisfy { Set(motionKeys($0, angle: 1)).isSubset(of: DotMotion.keys) }
-      && DotMotion.keys.contains(DotMotion.driftKey), "every motion is one that stop() removes")
+check(motionKeys(drawPass(.heart)) == [DotMotion.wobbleKey, DotMotion.turnKey], "a heart rocks as it sways")
+check([fireflyStar, plainCircle, plainStar].allSatisfy { motionKeys($0).isSubset(of: DotMotion.keys) }
+      && DotMotion.keys.isSuperset(of: [DotMotion.driftKey, DotMotion.settleKey]), "every motion is one that stop() removes")
 
 // MARK: - Restyled turns
 
@@ -267,18 +261,23 @@ let tumblingHeart = drawPass(.heart, motion: .confetti)
 check(spinningStar.turn.style == .spin && rockingHeart.turn.style == .rock && tumblingHeart.turn.style == .spin,
       "fixture: a star spins, a heart rocks, a confetti heart spins")
 func restyle(_ original: DotPass, to shape: DotShape) -> DotPass {
-    original.restyled(DotLook(shape: shape, color: original.look.color), using: &rng)
+    original.restyled(DotLook(shape: shape, color: original.look.color))
 }
-check(restyle(spinningStar, to: .heart).turn.style == .rock, "a star that becomes a heart rocks instead of spinning")
-check(restyle(spinningStar, to: .circle).turn == .still, "a star that becomes a circle stops turning")
-check(restyle(spinningStar, to: .sparkle).turn == spinningStar.turn, "a star that becomes a sparkle keeps its spin")
-check(restyle(rockingHeart, to: .moon).turn == rockingHeart.turn, "a heart that becomes a moon keeps its rocking")
-if case let .spin(period, _) = restyle(rockingHeart, to: .star).turn {
-    check(DotPass.spinPeriods.contains(period), "a restyled star spins at drift speed, period \(period)")
-} else {
-    check(false, "a heart that becomes a star spins")
+let heartLook = DotLook(shape: .heart, color: Palette.citrus.colors[0], accent: Palette.citrus.colors[1], softness: .soft)
+let recoloured = spinningStar.restyled(heartLook)
+check(recoloured.turn == spinningStar.turn && recoloured.look.shape == .star,
+      "a spinning star taking a heart-only mood keeps its spin and stays a spinner")
+check(recoloured.look == DotLook(shape: .star, color: heartLook.color, accent: heartLook.accent, softness: .soft),
+      "a shape that can't take the turn still takes the new colours")
+for (original, shape) in [(spinningStar, DotShape.circle), (spinningStar, .heart), (rockingHeart, .star),
+                          (rockingHeart, .circle), (drawPass(.circle), .star), (tumblingHeart, .circle)] {
+    let changed = restyle(original, to: shape)
+    check(changed.turn == original.turn, "a \(original.look.shape) restyled as a \(shape) keeps its turn")
+    check(changed.look.shape == original.look.shape, "a \(original.look.shape) can't become a \(shape) mid-trip")
 }
-check(restyle(tumblingHeart, to: .moon).turn == tumblingHeart.turn, "confetti keeps tumbling as its shape changes")
+check(restyle(spinningStar, to: .sparkle).look.shape == .sparkle, "a star can become a sparkle")
+check(restyle(rockingHeart, to: .moon).look.shape == .moon, "a heart can become a moon")
+check(restyle(tumblingHeart, to: .star).look.shape == .star, "confetti keeps tumbling as its shape changes")
 
 // MARK: - Special motion
 

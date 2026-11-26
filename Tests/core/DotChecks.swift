@@ -24,16 +24,20 @@ private func wrap(_ dot: Dot) {
     dot.animationDidStop(drift, finished: true)
 }
 
-private func now(_ layer: CALayer) -> CFTimeInterval {
-    layer.convertTime(CACurrentMediaTime(), from: nil)
-}
-
 private func modelAngle(_ layer: CALayer) -> Double {
     (layer.value(forKeyPath: DotMotion.rotationKey) as? NSNumber)?.doubleValue ?? .nan
 }
 
 private func settle(on layer: CALayer) -> CABasicAnimation? {
     layer.animation(forKey: DotMotion.settleKey) as? CABasicAnimation
+}
+
+private func turn(on layer: CALayer) -> CAAnimation? {
+    layer.animation(forKey: DotMotion.turnKey)
+}
+
+private func isSpin(_ animation: CAAnimation?) -> Bool {
+    animation is CABasicAnimation && isAdditive(animation)
 }
 
 private func fromAngle(_ animation: CABasicAnimation?) -> Double {
@@ -55,7 +59,7 @@ private func isAdditive(_ animation: CAAnimation?) -> Bool {
 /// any turn must both be additive to combine whichever comes first.
 private func checkSettles(_ dot: Dot, from angle: Double, _ what: String, line: Int = #line) {
     let settling = settle(on: dot.layer)
-    check(settling.map { $0.beginTime <= now(dot.layer) + 0.1 } ?? false, "\(what) eases upright at once", line: line)
+    check(settling.map { $0.beginTime <= DotMotion.now(on: dot.layer) + 0.1 } ?? false, "\(what) eases upright at once", line: line)
     check(near(fromAngle(settling), remainder(angle, 2 * .pi), within: 1e-6), "\(what) settles from \(angle)", line: line)
     check(modelAngle(dot.layer) == 0, "\(what) has an upright model rotation", line: line)
     check(isAdditive(settling), "\(what) settles on top of its upright model", line: line)
@@ -77,40 +81,38 @@ private func checkWraps() {
     scenario {
         let dot = makeDot(.star)
         dot.start()
-        check(dot.layer.animation(forKey: DotMotion.turnKey) != nil, "fixture: a star spins")
         dot.adopt(moodOf(.circle), desktop: screen, after: 0, fadingOver: 1)
+        check(turn(on: dot.layer) != nil, "fixture: a star taking a circle mood spins until it wraps")
+        show(dot, at: 2.9)
         wrap(dot)
-        check(dot.layer.animation(forKey: DotMotion.turnKey) == nil
-              && settle(on: dot.layer) == nil, "a star that wraps to a circle stops turning")
+        check(turn(on: dot.layer) == nil, "a star that wraps to a circle stops turning")
+        check(settle(on: dot.layer) == nil && modelAngle(dot.layer) == 0, "a pass enters upright, unseen")
     }
 }
 
-private func checkTurnChanges() {
+/// A mood change only restyles; the trip's turn runs on until the wrap.
+private func checkTurnKept() {
     scenario {
         let dot = makeDot(.star)
         dot.start()
         show(dot, at: 2.9)
-        let begin = now(dot.layer) + 10
+        let spin = turn(on: dot.layer)
+        check(spin != nil, "fixture: a star spins")
         dot.adopt(moodOf(.heart), desktop: screen, after: 10, fadingOver: 5)
-        checkSettles(dot, from: 2.9, "a spin that becomes a rock")
-        let rock = dot.layer.animation(forKey: DotMotion.turnKey)
-        check(rock.map { near($0.beginTime, begin, within: 0.1) } ?? false, "the rock starts as the heart arrives")
-    }
-    scenario {
-        let dot = makeDot(.heart)
-        dot.start()
-        show(dot, at: 0.3)
-        dot.adopt(moodOf(.star), desktop: screen, after: 2, fadingOver: 5)
-        checkSettles(dot, from: 0.3, "a rock that becomes a spin")
-        check(dot.layer.animation(forKey: DotMotion.turnKey) != nil, "a rock that becomes a star spins")
+        let kept = turn(on: dot.layer)
+        check(kept != nil && kept === spin && kept?.beginTime == spin?.beginTime,
+              "adopting a mood leaves the turn as it was")
+        check(settle(on: dot.layer) == nil && modelAngle(dot.layer) == 2.9, "adopting a mood doesn't settle the dot")
     }
     scenario {
         let dot = makeDot(.star)
         dot.start()
-        show(dot, at: 2.9)
-        dot.adopt(moodOf(.circle), desktop: screen, after: 10, fadingOver: 5)
-        checkSettles(dot, from: 2.9, "a spin that stops")
-        check(dot.layer.animation(forKey: DotMotion.turnKey) == nil, "a star that becomes a circle stops turning")
+        dot.adopt(moodOf(.heart), desktop: screen, after: 10, fadingOver: 5)
+        dot.setSpeedFactor(2)
+        let spin = turn(on: dot.layer)
+        check(spin != nil, "a speed change mid-trip re-adds the turn")
+        check(isSpin(spin) && (spin?.beginTime ?? 1) <= DotMotion.now(on: dot.layer) + 0.1,
+              "a speed change during a mood change spins on at once")
     }
 }
 
@@ -122,7 +124,8 @@ private func checkResumes() {
         dot.stop()
         dot.adopt(moodOf(.heart), desktop: screen, after: 0, fadingOver: 1)
         dot.start()
-        checkSettles(dot, from: 2.9, "a stopped star that becomes a heart")
+        check(isSpin(turn(on: dot.layer)) && settle(on: dot.layer) == nil && modelAngle(dot.layer) == 2.9,
+              "a stopped star that takes a heart mood spins on from its angle")
     }
     scenario {
         let dot = makeDot(.heart)
@@ -131,9 +134,6 @@ private func checkResumes() {
         dot.stop()
         dot.start()
         checkSettles(dot, from: 0.3, "a heart resumed mid-rock")
-        dot.stop()
-        dot.start()
-        check(modelAngle(dot.layer) == 0, "repeated pauses don't add up a rocking offset")
     }
     scenario {
         let dot = makeDot(.heart)
@@ -154,7 +154,7 @@ private func checkResumes() {
 }
 
 private func checkBuilders() {
-    check(near(fromAngle(DotMotion.settle(from: 5, beginTime: 0)), 5 - 2 * .pi, within: 1e-9),
+    check(near(fromAngle(DotMotion.settle(from: 5, on: CALayer())), 5 - 2 * .pi, within: 1e-9),
           "a settle takes the short way round to upright")
     let shown = CGSize(width: 13, height: 13)
     let swell = DotMotion.swell(from: shown, to: CGSize(width: 10, height: 10), beginTime: 0, duration: 1)
@@ -163,7 +163,7 @@ private func checkBuilders() {
 
 func checkDotMotion() {
     checkWraps()
-    checkTurnChanges()
+    checkTurnKept()
     checkResumes()
     checkBuilders()
 }

@@ -18,24 +18,27 @@ enum DotMotion {
 
     private typealias Builder = (DotPass, CALayer) -> CAAnimation?
 
-    /// Every motion a trip can run besides its drift. Reduce Motion keeps the
-    /// glow, which doesn't move the dot, and the settle, which brings it to rest.
+    /// Every motion a trip can run besides its drift and settle. Reduce
+    /// Motion keeps the glow, which doesn't move the dot.
     private static let builders: [(key: String, keptByReduceMotion: Bool, build: Builder)] = [
-        (glowKey, true, { glow(for: $0, from: $1.opacity, on: $1) }),
-        (settleKey, true, uprightSettle),
+        (glowKey, true, glow),
         (wobbleKey, false, wobble),
         (turnKey, false, { pass, _ in turn(for: pass) }),
     ]
 
     /// What `Dot.stop()` and each new trip remove. A mood's restyle and swell
     /// are left to finish rather than snap.
-    static let keys = Set([driftKey] + builders.map(\.key))
+    static let keys = Set([driftKey, settleKey] + builders.map(\.key))
 
     /// The motion a trip runs on top of its drift.
     static func motions(for pass: DotPass, on layer: CALayer, reduceMotion: Bool) -> [(key: String, animation: CAAnimation)] {
         builders
             .filter { !reduceMotion || $0.keptByReduceMotion }
             .compactMap { motion in motion.build(pass, layer).map { (motion.key, $0) } }
+    }
+
+    static func now(on layer: CALayer) -> CFTimeInterval {
+        layer.convertTime(CACurrentMediaTime(), from: nil)
     }
 
     static func rotation(of layer: CALayer) -> Double {
@@ -85,9 +88,11 @@ enum DotMotion {
     }
 
     /// A firefly brightens and dims between its alpha and the glow floor,
-    /// starting from `opacity` after a random wait, so fireflies glow out of step.
-    static func glow(for pass: DotPass, from opacity: Float, on layer: CALayer) -> CAAnimation? {
+    /// starting from the layer's opacity after a random wait, so fireflies
+    /// glow out of step.
+    static func glow(for pass: DotPass, on layer: CALayer) -> CAAnimation? {
         guard pass.glows, let period = pass.glowPeriod else { return nil }
+        let opacity = layer.opacity
         let dimmest = pass.alpha * DotPass.glowFloor
         let glow = CABasicAnimation(keyPath: "opacity")
         glow.fromValue = opacity
@@ -96,7 +101,7 @@ enum DotMotion {
         glow.autoreverses = true
         glow.repeatCount = .infinity
         glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        glow.beginTime = layer.convertTime(CACurrentMediaTime() + .random(in: 0..<period), from: nil)
+        glow.beginTime = now(on: layer) + .random(in: 0..<period)
         glow.preferredFrameRateRange = frameRates
         return glow
     }
@@ -130,25 +135,25 @@ enum DotMotion {
         return swell
     }
 
-    /// Eases a shape that doesn't spin upright from a leftover angle, now.
-    /// The caller sets the layer's own rotation upright.
-    private static func uprightSettle(for pass: DotPass, on layer: CALayer) -> CAAnimation? {
-        let angle = rotation(of: layer)
-        guard pass.turn.style != .spin, remainder(angle, 2 * .pi) != 0 else { return nil }
-        return settle(from: angle, beginTime: layer.convertTime(CACurrentMediaTime(), from: nil))
+    /// Sets a shape that doesn't spin upright and returns a settle that eases
+    /// there now from its tilt, so it never snaps; nil if nothing needs it.
+    static func standUpright(_ layer: CALayer, for pass: DotPass) -> CAAnimation? {
+        guard pass.turn.style != .spin else { return nil }
+        let angle = remainder(rotation(of: layer), 2 * .pi)
+        CATransaction.withoutActions { layer.setValue(0, forKeyPath: rotationKey) }
+        return angle == 0 ? nil : settle(from: angle, on: layer)
     }
 
-    /// Eases from `angle` to the nearest upright, holding `angle` until
-    /// `beginTime`. It adds onto the layer's own rotation, which should be
-    /// upright, so it combines with a turn whichever was added first.
-    static func settle(from angle: Double, beginTime: CFTimeInterval) -> CABasicAnimation {
+    /// Eases from `angle` to the nearest upright, starting now. It adds onto
+    /// the layer's own rotation, which should be upright, so it combines with
+    /// a turn whichever was added first.
+    static func settle(from angle: Double, on layer: CALayer) -> CABasicAnimation {
         let settle = CABasicAnimation(keyPath: rotationKey)
         settle.fromValue = remainder(angle, 2 * .pi)
         settle.toValue = 0
         settle.isAdditive = true
-        settle.beginTime = beginTime
+        settle.beginTime = now(on: layer)
         settle.duration = settleSeconds
-        settle.fillMode = .backwards
         settle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         settle.preferredFrameRateRange = frameRates
         return settle
