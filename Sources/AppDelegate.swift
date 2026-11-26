@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
     private static let launchFade: TimeInterval = 3
     private static let pauseFade: TimeInterval = 1.5
+    private static let welcomeDelay: TimeInterval = 1
 
     private(set) var settings = Settings.load()
     private(set) var isUserPaused = false
@@ -143,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
 
     /// Waits a moment so the status item has its place in the menu bar.
     private func showWelcomeSoon() {
-        _ = oneShot(after: 1) { [weak self] in self?.showWelcome() }
+        _ = oneShot(after: Self.welcomeDelay) { [weak self] in self?.showWelcome() }
     }
 
     private func showWelcome() {

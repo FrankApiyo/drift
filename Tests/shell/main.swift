@@ -9,8 +9,12 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     print("FAIL (line \(line)): \(message)")
 }
 
+let scratchSuite = "drift.checks.shell"
+
 func freshDefaults() -> UserDefaults {
-    UserDefaults(suiteName: "drift.shell.\(UUID().uuidString)")!
+    let defaults = UserDefaults(suiteName: scratchSuite)!
+    defaults.removePersistentDomain(forName: scratchSuite)
+    return defaults
 }
 
 var utc = Calendar(identifier: .gregorian)
@@ -179,12 +183,17 @@ do {
     let pause = Shortcut.pauseToggle
     check(pause.modifiers == [.control, .option, .command], "the pause shortcut is control-option-command")
     check(
+        pause.keyEquivalent == "d" && pause.keyCode == kVK_ANSI_D,
+        "the hot key registers the same key the menu shows")
+    check(
         pause.carbonModifiers == UInt32(controlKey | optionKey | cmdKey),
         "the hot key registers the same modifiers the menu shows")
     check(
         Shortcut(keyCode: 0, keyEquivalent: "a", modifiers: [.shift]).carbonModifiers == UInt32(shiftKey),
         "shift maps to its Carbon modifier")
 }
+
+UserDefaults(suiteName: scratchSuite)?.removePersistentDomain(forName: scratchSuite)
 
 print(failures == 0 ? "All shell checks passed" : "\(failures) shell check(s) failed")
 exit(failures == 0 ? 0 : 1)

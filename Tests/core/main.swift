@@ -2,6 +2,7 @@
 // XCTest, so `./build.sh test` compiles this with the sources it covers.
 import CoreGraphics
 import Foundation
+import QuartzCore
 
 struct SplitMix64: RandomNumberGenerator {
     private var state: UInt64
@@ -239,17 +240,24 @@ check(fireflyStar.glowPeriod != nil && fireflyStar.wobbleAmplitude > 0 && firefl
       "fixture: a firefly star glows, sways and turns")
 check(plainCircle.glowPeriod == nil && plainCircle.wobbleAmplitude > 0 && plainCircle.turn == .still,
       "fixture: a plain circle sways but neither glows nor turns")
-check(DotMotion.neededKeys(for: fireflyStar, reduceMotion: false)
-      == [DotMotion.driftKey, DotMotion.wobbleKey, DotMotion.turnKey, DotMotion.glowKey],
-      "a firefly star needs every motion")
-check(DotMotion.neededKeys(for: plainCircle, reduceMotion: false) == [DotMotion.driftKey, DotMotion.wobbleKey],
-      "a plain circle after a firefly pass needs no glow and no turn")
-check(DotMotion.neededKeys(for: plainStar, reduceMotion: true) == [DotMotion.driftKey], "Reduce Motion needs only drift")
-check(DotMotion.neededKeys(for: fireflyStar, reduceMotion: true) == [DotMotion.driftKey, DotMotion.glowKey],
+func motionKeys(_ pass: DotPass, reduceMotion: Bool = false, angle: Double = 0) -> [String] {
+    let layer = CALayer()
+    layer.setValue(angle, forKeyPath: DotMotion.rotationKey)
+    return DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion).map(\.key)
+}
+check(Set(motionKeys(fireflyStar)) == [DotMotion.wobbleKey, DotMotion.turnKey, DotMotion.glowKey],
+      "a firefly star needs every motion but a settle")
+check(motionKeys(plainCircle) == [DotMotion.wobbleKey], "a plain circle after a firefly pass needs no glow and no turn")
+check(motionKeys(plainStar, reduceMotion: true).isEmpty, "Reduce Motion needs only drift")
+check(motionKeys(fireflyStar, reduceMotion: true) == [DotMotion.glowKey],
       "Reduce Motion keeps a firefly's glow, which doesn't move it")
-check([fireflyStar, plainCircle, plainStar].allSatisfy {
-    DotMotion.neededKeys(for: $0, reduceMotion: false).isSubset(of: DotMotion.keys)
-}, "every needed key is one that stop() removes")
+check(motionKeys(plainStar, angle: 2.9) == [DotMotion.wobbleKey, DotMotion.turnKey], "a star spins on from any angle")
+check(motionKeys(drawPass(.heart), angle: 2.9) == [DotMotion.settleKey, DotMotion.wobbleKey, DotMotion.turnKey],
+      "a tilted heart settles upright under its rock")
+check(motionKeys(plainCircle, reduceMotion: true, angle: 0.3) == [DotMotion.settleKey],
+      "Reduce Motion still brings a tilted shape upright")
+check([fireflyStar, plainCircle, plainStar].allSatisfy { Set(motionKeys($0, angle: 1)).isSubset(of: DotMotion.keys) }
+      && DotMotion.keys.contains(DotMotion.driftKey), "every motion is one that stop() removes")
 
 // MARK: - Restyled turns
 
@@ -265,9 +273,10 @@ check(restyle(spinningStar, to: .heart).turn.style == .rock, "a star that become
 check(restyle(spinningStar, to: .circle).turn == .still, "a star that becomes a circle stops turning")
 check(restyle(spinningStar, to: .sparkle).turn == spinningStar.turn, "a star that becomes a sparkle keeps its spin")
 check(restyle(rockingHeart, to: .moon).turn == rockingHeart.turn, "a heart that becomes a moon keeps its rocking")
-check(restyle(rockingHeart, to: .star).turn.style == .spin, "a heart that becomes a star spins")
 if case let .spin(period, _) = restyle(rockingHeart, to: .star).turn {
     check(DotPass.spinPeriods.contains(period), "a restyled star spins at drift speed, period \(period)")
+} else {
+    check(false, "a heart that becomes a star spins")
 }
 check(restyle(tumblingHeart, to: .moon).turn == tumblingHeart.turn, "confetti keeps tumbling as its shape changes")
 
@@ -366,11 +375,15 @@ check(Sweep(desktop: desktop, direction: .topToBottom).heading(.leftToRight).dir
       "a sweep can be turned to run left to right")
 
 checkMoodSelectionAndVisitors()
+checkDotMotion()
 
 // MARK: - Settings
 
-let suite = "drift.checks.\(UUID().uuidString)"
+/// One fixed suite, cleared before and after, so at most one scratch file
+/// ever sits in ~/Library/Preferences.
+let suite = "drift.checks.core"
 if let defaults = UserDefaults(suiteName: suite) {
+    defaults.removePersistentDomain(forName: suite)
     check(Settings.load(from: defaults) == Settings(), "empty defaults load the defaults")
     check(Settings().layer == .behind, "behind windows is the default layer")
     check(Settings().pauseInLowPowerMode, "low power pause is on by default")

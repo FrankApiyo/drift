@@ -48,8 +48,6 @@ struct DotPass {
     let pointsPerSecond: CGFloat
     let wobbleAmplitude: CGFloat
     let wobblePeriod: TimeInterval
-    /// Shoal dots line their sway up to a shared clock.
-    let wobblesInUnison: Bool
     let turn: Turn
     /// The mood motion the pass was drawn for, which a restyle keeps.
     let motion: MotionStyle
@@ -57,6 +55,8 @@ struct DotPass {
     let glowPeriod: TimeInterval?
 
     var wobbles: Bool { wobbleAmplitude > 0 && wobblePeriod > 0 }
+    /// Shoal dots line their sway up to a shared clock.
+    var wobblesInUnison: Bool { motion == .shoal }
     var glows: Bool { (glowPeriod ?? 0) > 0 }
 
     static func random<R: RandomNumberGenerator>(
@@ -83,15 +83,15 @@ struct DotPass {
             pointsPerSecond: (setup.area.height + diameter) / CGFloat(crossing),
             wobbleAmplitude: .random(in: wobbleAmplitudes, using: &rng) * sway,
             wobblePeriod: wobblePeriod,
-            wobblesInUnison: mood.motion == .shoal,
             turn: randomTurn(for: look.shape, motion: mood.motion, using: &rng),
             motion: mood.motion,
             glowPeriod: mood.motion == .fireflies ? .random(in: glowPeriods, using: &rng) : nil
         )
     }
 
-    /// Confetti tumbles every shape that isn't round.
-    static func turnStyle(for shape: DotShape, motion: MotionStyle) -> TurnStyle {
+    /// The shape's own turn style, except that confetti tumbles every shape
+    /// that isn't round.
+    static func effectiveTurnStyle(for shape: DotShape, motion: MotionStyle) -> TurnStyle {
         switch (shape.turnStyle, motion) {
         case (.still, _): .still
         case (_, .confetti): .spin
@@ -102,7 +102,7 @@ struct DotPass {
     private static func randomTurn<R: RandomNumberGenerator>(
         for shape: DotShape, motion: MotionStyle, using rng: inout R
     ) -> Turn {
-        switch turnStyle(for: shape, motion: motion) {
+        switch effectiveTurnStyle(for: shape, motion: motion) {
         case .still:
             return .still
         case .spin:
@@ -116,11 +116,10 @@ struct DotPass {
     /// Keeps the turn while it suits the new shape, so a running spin or
     /// rock carries on; otherwise draws one that does.
     func restyled<R: RandomNumberGenerator>(_ newLook: DotLook, using rng: inout R) -> DotPass {
-        let suits = turn.style == Self.turnStyle(for: newLook.shape, motion: motion)
+        let suits = turn.style == Self.effectiveTurnStyle(for: newLook.shape, motion: motion)
         return DotPass(
             direction: direction, x: x, diameter: diameter, look: newLook, alpha: alpha,
             pointsPerSecond: pointsPerSecond, wobbleAmplitude: wobbleAmplitude, wobblePeriod: wobblePeriod,
-            wobblesInUnison: wobblesInUnison,
             turn: suits ? turn : Self.randomTurn(for: newLook.shape, motion: motion, using: &rng),
             motion: motion, glowPeriod: glowPeriod)
     }

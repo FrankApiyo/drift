@@ -11,21 +11,35 @@ enum DotMotion {
     static let settleKey = "settle"
     static let restyleKey = "restyle"
     static let swellKey = "swell"
-    /// What `Dot.stop()` removes. A mood's restyle and swell last under half
-    /// a minute, so they are left to finish rather than snap.
-    static let keys: Set = [driftKey, wobbleKey, turnKey, glowKey, settleKey]
     /// Slow motion looks the same at 30 fps, so don't ask ProMotion screens for 120.
     static let frameRates = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     static let swellScale: CGFloat = 1.15
     static let settleSeconds: TimeInterval = 3
 
-    /// The motion a trip runs; a trip removes every other motion key so
-    /// nothing from an earlier pass carries on. A glow doesn't move the dot,
-    /// so Reduce Motion keeps it.
-    static func neededKeys(for pass: DotPass, reduceMotion: Bool) -> Set<String> {
-        let moving = reduceMotion ? [] : [(wobbleKey, pass.wobbles), (turnKey, pass.turn != .still)]
-        let wanted = [(driftKey, true), (glowKey, pass.glows)] + moving
-        return Set(wanted.filter(\.1).map(\.0))
+    private typealias Builder = (DotPass, CALayer) -> CAAnimation?
+
+    /// Every motion a trip can run besides its drift. Reduce Motion keeps the
+    /// glow, which doesn't move the dot, and the settle, which brings it to rest.
+    private static let builders: [(key: String, keptByReduceMotion: Bool, build: Builder)] = [
+        (glowKey, true, { glow(for: $0, from: $1.opacity, on: $1) }),
+        (settleKey, true, uprightSettle),
+        (wobbleKey, false, wobble),
+        (turnKey, false, { pass, _ in turn(for: pass) }),
+    ]
+
+    /// What `Dot.stop()` and each new trip remove. A mood's restyle and swell
+    /// are left to finish rather than snap.
+    static let keys = Set([driftKey] + builders.map(\.key))
+
+    /// The motion a trip runs on top of its drift.
+    static func motions(for pass: DotPass, on layer: CALayer, reduceMotion: Bool) -> [(key: String, animation: CAAnimation)] {
+        builders
+            .filter { !reduceMotion || $0.keptByReduceMotion }
+            .compactMap { motion in motion.build(pass, layer).map { (motion.key, $0) } }
+    }
+
+    static func rotation(of layer: CALayer) -> Double {
+        (layer.value(forKeyPath: rotationKey) as? NSNumber)?.doubleValue ?? 0
     }
 
     static func drift(fromY: CGFloat, toY: CGFloat, duration: TimeInterval) -> CABasicAnimation {
@@ -50,17 +64,17 @@ enum DotMotion {
         return wobble
     }
 
-    /// Spins from wherever the dot faces, so resuming doesn't snap it upright,
-    /// or rocks either side of that angle.
-    static func turn(for pass: DotPass, on layer: CALayer) -> CAAnimation? {
+    /// Spins or rocks on top of the layer's own rotation, so a spin carries
+    /// on from wherever the dot faces and a rock sways around a settle.
+    static func turn(for pass: DotPass) -> CAAnimation? {
         switch pass.turn {
         case .still:
             return nil
         case let .spin(period, clockwise):
-            let start = (layer.value(forKeyPath: rotationKey) as? NSNumber)?.doubleValue ?? 0
             let spin = CABasicAnimation(keyPath: rotationKey)
-            spin.fromValue = start
-            spin.toValue = start + (clockwise ? -2 : 2) * Double.pi
+            spin.fromValue = 0
+            spin.toValue = (clockwise ? -2 : 2) * Double.pi
+            spin.isAdditive = true
             spin.duration = period
             spin.repeatCount = .infinity
             spin.preferredFrameRateRange = frameRates
@@ -116,12 +130,22 @@ enum DotMotion {
         return swell
     }
 
+    /// Eases a shape that doesn't spin upright from a leftover angle, now.
+    /// The caller sets the layer's own rotation upright.
+    private static func uprightSettle(for pass: DotPass, on layer: CALayer) -> CAAnimation? {
+        let angle = rotation(of: layer)
+        guard pass.turn.style != .spin, remainder(angle, 2 * .pi) != 0 else { return nil }
+        return settle(from: angle, beginTime: layer.convertTime(CACurrentMediaTime(), from: nil))
+    }
+
     /// Eases from `angle` to the nearest upright, holding `angle` until
-    /// `beginTime`. The layer's own rotation should be upright.
+    /// `beginTime`. It adds onto the layer's own rotation, which should be
+    /// upright, so it combines with a turn whichever was added first.
     static func settle(from angle: Double, beginTime: CFTimeInterval) -> CABasicAnimation {
         let settle = CABasicAnimation(keyPath: rotationKey)
         settle.fromValue = remainder(angle, 2 * .pi)
         settle.toValue = 0
+        settle.isAdditive = true
         settle.beginTime = beginTime
         settle.duration = settleSeconds
         settle.fillMode = .backwards

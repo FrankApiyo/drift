@@ -164,8 +164,7 @@ func checkMoodSelectionAndVisitors() {
     }
     for _ in 0..<200 {
         let star = VisitorPath.random(for: .shootingStar, area: area, using: &rng)
-        check(VisitorKind.shootingStar.appearance.durations.contains(star.duration) && star.duration >= 8 && star.duration <= 10,
-              "a shooting star takes 8–10 s")
+        check((8...10).contains(star.duration), "a shooting star takes 8–10 s")
         check([star.start, star.control, star.end].allSatisfy { screen.contains($0) }, "a shooting star stays on screen")
         check(abs(star.end.y - star.start.y) < abs(star.end.x - star.start.x) * 0.5, "a shooting star's arc is shallow")
         let lantern = VisitorPath.random(for: .lantern, area: area, using: &rng)

@@ -17,15 +17,18 @@ final class Dot: NSObject, CAAnimationDelegate {
     private var trip: Trip?
     private var tripID = 0
     private var isRunning = false
+    private let oddOneOutChance: Double
 
     private static let tripKey = "tripID"
 
-    init(setup: PassSetup, scale: CGFloat, speedFactor: Double, mood: Mood, reduceMotion: Bool) {
+    init(setup: PassSetup, scale: CGFloat, speedFactor: Double, mood: Mood, reduceMotion: Bool,
+         oddOneOutChance: Double = Mood.oddOneOutChance) {
         self.setup = setup
         self.speedFactor = speedFactor
         self.reduceMotion = reduceMotion
         self.mood = mood
-        pass = Self.randomPass(setup, mood: mood)
+        self.oddOneOutChance = oddOneOutChance
+        pass = Self.randomPass(setup, mood: mood, oddOneOutChance: oddOneOutChance)
         super.init()
         layer.contentsScale = scale
         layer.contentsGravity = .resize
@@ -41,9 +44,7 @@ final class Dot: NSObject, CAAnimationDelegate {
     }
 
     private var currentAngle: Double {
-        let angle = layer.presentation()?.value(forKeyPath: DotMotion.rotationKey)
-            ?? layer.value(forKeyPath: DotMotion.rotationKey)
-        return (angle as? NSNumber)?.doubleValue ?? 0
+        DotMotion.rotation(of: layer.presentation() ?? layer)
     }
 
     /// Reduce Motion drifts no faster than the Slower setting.
@@ -98,7 +99,7 @@ final class Dot: NSObject, CAAnimationDelegate {
         setup = setup.with(desktop: desktop)
         var rng = SystemRandomNumberGenerator()
         let look = newMood.randomLook(
-            oddOneOutChance: Mood.oddOneOutChance, desktopFraction: setup.desktopFraction(ofX: pass.x),
+            oddOneOutChance: oddOneOutChance, desktopFraction: setup.desktopFraction(ofX: pass.x),
             softness: setup.tier.softness, using: &rng)
         let restyled = pass.restyled(look, using: &rng)
         let turnChanges = restyled.turn != pass.turn
@@ -115,14 +116,14 @@ final class Dot: NSObject, CAAnimationDelegate {
             layer.add(fade, forKey: DotMotion.restyleKey)
             layer.add(swell, forKey: DotMotion.swellKey)
         }
-        if turnChanges, isRunning, !reduceMotion { startTurn(at: begin) }
+        if turnChanges, isRunning { startTurn(at: begin) }
     }
 
     func animationDidStop(_ anim: CAAnimation, finished: Bool) {
         // Removed or replaced animations report finished == false; a stale
         // finish can still arrive after a pause and resume, hence the ID check.
         guard finished, isRunning, anim.value(forKey: Self.tripKey) as? Int == tripID else { return }
-        pass = Self.randomPass(setup, mood: mood)
+        pass = Self.randomPass(setup, mood: mood, oddOneOutChance: oddOneOutChance)
         show(pass, atY: pass.startY(areaHeight: setup.area.height))
         beginTrip(fromY: layer.position.y)
     }
@@ -141,41 +142,29 @@ final class Dot: NSObject, CAAnimationDelegate {
         let drift = DotMotion.drift(fromY: y, toY: toY, duration: duration)
         drift.delegate = self
         drift.setValue(tripID, forKey: Self.tripKey)
-        let needed = DotMotion.neededKeys(for: pass, reduceMotion: reduceMotion)
-        let extras = needed.compactMap { key in extraMotion(forKey: key).map { (key, $0) } }
+        let motions = DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion)
 
         CATransaction.withoutActions {
             layer.position.y = toY
-            DotMotion.keys.subtracting(needed).forEach(layer.removeAnimation(forKey:))
+            if pass.turn.style != .spin { layer.setValue(0, forKeyPath: DotMotion.rotationKey) }
+            DotMotion.keys.forEach(layer.removeAnimation(forKey:))
             layer.add(drift, forKey: DotMotion.driftKey)
-            extras.forEach { key, animation in layer.add(animation, forKey: key) }
+            motions.forEach { key, animation in layer.add(animation, forKey: key) }
         }
         trip = Trip(fromY: y, toY: toY, startTime: CACurrentMediaTime(), duration: duration)
     }
 
-    /// Switches to the pass's turn as the new look arrives, from wherever the
-    /// dot faces now: a spin carries on from that angle, and anything else
-    /// first settles upright.
+    /// Eases upright now, so a turn never stops dead while the new look is
+    /// on its way, and starts the pass's turn as that look arrives.
     private func startTurn(at begin: CFTimeInterval) {
-        let angle = currentAngle
-        let spins = pass.turn.style == .spin
+        let settle = DotMotion.settle(from: currentAngle, beginTime: layer.convertTime(CACurrentMediaTime(), from: nil))
+        let turn = reduceMotion ? nil : DotMotion.turn(for: pass)
+        turn?.beginTime = begin
         CATransaction.withoutActions {
-            layer.setValue(spins ? angle : 0, forKeyPath: DotMotion.rotationKey)
+            layer.setValue(0, forKeyPath: DotMotion.rotationKey)
             [DotMotion.turnKey, DotMotion.settleKey].forEach(layer.removeAnimation(forKey:))
-            if !spins { layer.add(DotMotion.settle(from: angle, beginTime: begin), forKey: DotMotion.settleKey) }
-            if let turn = DotMotion.turn(for: pass, on: layer) {
-                turn.beginTime = begin
-                layer.add(turn, forKey: DotMotion.turnKey)
-            }
-        }
-    }
-
-    private func extraMotion(forKey key: String) -> CAAnimation? {
-        switch key {
-        case DotMotion.wobbleKey: DotMotion.wobble(for: pass, on: layer)
-        case DotMotion.turnKey: DotMotion.turn(for: pass, on: layer)
-        case DotMotion.glowKey: DotMotion.glow(for: pass, from: layer.opacity, on: layer)
-        default: nil
+            layer.add(settle, forKey: DotMotion.settleKey)
+            turn.map { layer.add($0, forKey: DotMotion.turnKey) }
         }
     }
 
@@ -188,12 +177,12 @@ final class Dot: NSObject, CAAnimationDelegate {
             layer.opacity = pass.alpha
             layer.contents = DotImages.image(for: pass.look)
             // Off screen, so shapes with an up can be set upright unseen.
-            if case .spin = pass.turn {} else { layer.setValue(0, forKeyPath: DotMotion.rotationKey) }
+            if pass.turn.style != .spin { layer.setValue(0, forKeyPath: DotMotion.rotationKey) }
         }
     }
 
-    private static func randomPass(_ setup: PassSetup, mood: Mood) -> DotPass {
+    private static func randomPass(_ setup: PassSetup, mood: Mood, oddOneOutChance: Double) -> DotPass {
         var rng = SystemRandomNumberGenerator()
-        return DotPass.random(setup, mood: mood, oddOneOutChance: Mood.oddOneOutChance, using: &rng)
+        return DotPass.random(setup, mood: mood, oddOneOutChance: oddOneOutChance, using: &rng)
     }
 }

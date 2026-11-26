@@ -1,7 +1,9 @@
 import Foundation
 
 /// How long the dots have been moving without a break while someone is at
-/// the Mac. Any pause, wake or idle spell starts it again from zero.
+/// the Mac. Any pause or wake starts it again from zero, and so does being
+/// idle at a mood-change check; a short break that ends between checks
+/// isn't noticed.
 struct FocusClock: Equatable {
     /// Without input for this long, nobody counts as focused.
     static let idleLimit: TimeInterval = 300

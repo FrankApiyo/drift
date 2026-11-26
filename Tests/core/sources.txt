@@ -9,3 +9,9 @@ Sources/Settings.swift
 Sources/Visitor.swift
 Sources/Sweep.swift
 Tests/core/MoodChecks.swift
+Sources/Dot.swift
+Sources/DotImages.swift
+Sources/Bitmap.swift
+Sources/ShapePaths.swift
+Sources/AbstractShapePaths.swift
+Tests/core/DotChecks.swift
