@@ -174,6 +174,8 @@ do {
 
     let otherUser = RunState(isUserPaused: false, systemPauses: [.sessionInactive, .displaysAsleep], lowPowerPause: false, anyWindowVisible: true)
     check(otherUser.pauseReason == .sessionInactive, "another user being active outranks sleeping displays")
+    let lockedAndAway = RunState(isUserPaused: false, systemPauses: [.screenLocked, .sessionInactive], lowPowerPause: false, anyWindowVisible: true)
+    check(lockedAndAway.pauseReason == .screenLocked, "a locked screen outranks another user being active")
     check(RunState.tooltip(for: .sessionInactive) == "Drift — paused (another user is active)", "another user tooltip")
 
     let asleep = RunState(isUserPaused: false, systemPauses: [.displaysAsleep], lowPowerPause: true, anyWindowVisible: true)

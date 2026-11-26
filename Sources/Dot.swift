@@ -91,9 +91,9 @@ final class Dot: NSObject, CAAnimationDelegate {
     }
 
     /// Cross-fades to a look from the new mood after `delay`, swelling a
-    /// little as it changes, from whatever is on screen now. The mood's pace,
-    /// motion and turns take over at the next wrap, so neither speed nor
-    /// turn changes mid-trip.
+    /// little as it changes, from whatever is on screen now. A shape that
+    /// doesn't suit the current turn waits for the next wrap, along with the
+    /// mood's pace and motion, so neither speed nor turn changes mid-trip.
     func adopt(_ newMood: Mood, desktop: CGRect, after delay: TimeInterval, fadingOver duration: TimeInterval) {
         mood = newMood
         setup = setup.with(desktop: desktop)
