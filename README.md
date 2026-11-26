@@ -5,6 +5,10 @@ your screen while you work. Every few minutes Drift changes mood: new colours,
 new shapes, a new pace. Most moods are soft and muted; now and then one is
 bright.
 
+![Three Drift moods: Dusk with stars, hearts and moons; Neon fireflies with sparkles, rings and flowers; Carnival confetti with hearts, flowers and spirals](docs/drift.jpg)
+
+<sub>Three moods, drawn by Drift's own code. Drift hides its dots from real screenshots.</sub>
+
 Moods follow the time of day, and a few dates on the calendar bring their own
 surprise. Once in a while something that isn't a dot passes by, and a long,
 unbroken stretch of work may be rewarded. Each rare thing you spot is added to
