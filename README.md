@@ -5,6 +5,11 @@ your screen while you work. Every few minutes Drift changes mood: new colours,
 new shapes, a new pace. Most moods are soft and muted; now and then one is
 bright.
 
+Moods follow the time of day, and a few dates on the calendar bring their own
+surprise. Once in a while something that isn't a dot passes by, and a long,
+unbroken stretch of work may be rewarded. Each rare thing you spot is added to
+the menu's **Seen** list.
+
 Drift is a menu bar app built with Swift, AppKit and Core Animation. The
 window server animates the shapes, so Drift itself stays nearly idle: about
 0% CPU and 12 MB of memory.
@@ -29,21 +34,37 @@ need the Xcode app.
 open ~/Applications/Drift.app
 ```
 
-Drift has no Dock icon. Look for the dotted circle in the menu bar. The menu has:
+Drift has no Dock icon. Look for the dotted circle in the menu bar. The first
+time Drift opens, a note under the icon says where it lives and offers Launch
+at Login. The menu has:
 
-- **Pause / Resume**
+- **Now**: the current mood's name and shapes
+- **New Mood**: change the mood right away
+- **Pause / Resume** (⌃⌥⌘D from any app): the dots fade out and stop, then
+  fade back in
 - **Layer**: Behind windows (just above the wallpaper) or Over windows
   (above everything, fainter). Both ignore clicks.
 - **Number of dots**: Few (15), Some (25) or Many (40) per screen
 - **Speed**: Slower, Normal or Faster
 - **Opacity**: Subtle, Medium or Visible
+- **Seen**: the rare moments you've spotted and the day you first saw each;
+  the rest show as ???
 - **Pause in Low Power Mode** (on by default)
 - **Launch at Login**
 - **Quit Drift**
 
 Settings are saved between launches. Drift also pauses while the displays
-sleep, the screen is locked, or you switch to another user. Only one copy runs
-at a time; opening it again does nothing.
+sleep, the screen is locked, or you switch to another user. While it's paused
+for any reason the icon dims, and its tooltip says why. Only one copy runs at
+a time; opening it again does nothing.
+
+The dots stay out of screen sharing, recordings and screenshots, though some
+newer capture tools on macOS 15 and later may still show them. They don't
+appear over full-screen apps, and a screen whose dots are hidden stops
+animating them.
+
+With **Reduce Motion** on (System Settings › Accessibility › Display), Drift
+keeps its motion gentler and skips the livelier effects.
 
 ## Check its resource use
 

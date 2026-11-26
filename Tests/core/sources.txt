@@ -1,5 +1,10 @@
 Sources/DotPass.swift
+Sources/DotLayout.swift
 Sources/Mood.swift
+Sources/MoodPicker.swift
+Sources/MoonPhase.swift
+Sources/SpecialPalettes.swift
 Sources/Settings.swift
 Sources/Visitor.swift
 Sources/Sweep.swift
+Tests/core/MoodChecks.swift

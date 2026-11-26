@@ -4,6 +4,17 @@ import Foundation
 /// Outlines for the non-circular dot shapes, with rounded corners so they
 /// read as soft.
 enum ShapePaths {
+    /// Line width as a share of the shape's width, for shapes drawn as a
+    /// line rather than filled.
+    static func strokeRatio(for shape: DotShape) -> CGFloat? {
+        switch shape {
+        case .ring: 0.16
+        case .squiggle: 0.14
+        case .spiral: 0.1
+        default: nil
+        }
+    }
+
     static func path(for shape: DotShape, in rect: CGRect) -> CGPath {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let radius = min(rect.width, rect.height) / 2
@@ -35,6 +46,8 @@ enum ShapePaths {
             return crescent(center: center, radius: radius)
         case .flower:
             return flower(center: center, radius: radius)
+        case .pebble, .capsule, .plus, .squiggle, .petal, .spiral, .cluster:
+            return AbstractShapePaths.path(for: shape, center: center, radius: radius)
         }
     }
 

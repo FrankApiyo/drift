@@ -54,6 +54,7 @@ struct Settings: Equatable {
     var speed = DriftSpeed.normal
     var opacity = DotOpacity.medium
     var pauseInLowPowerMode = true
+    var hasWelcomed = false
 
     func with<Value>(_ key: WritableKeyPath<Settings, Value>, _ value: Value) -> Settings {
         var copy = self
@@ -68,7 +69,8 @@ struct Settings: Equatable {
             count: choice(Key.count, in: defaults) ?? fallback.count,
             speed: choice(Key.speed, in: defaults) ?? fallback.speed,
             opacity: choice(Key.opacity, in: defaults) ?? fallback.opacity,
-            pauseInLowPowerMode: defaults.object(forKey: Key.lowPower) as? Bool ?? fallback.pauseInLowPowerMode
+            pauseInLowPowerMode: defaults.object(forKey: Key.lowPower) as? Bool ?? fallback.pauseInLowPowerMode,
+            hasWelcomed: defaults.bool(forKey: Key.welcomed)
         )
     }
 
@@ -78,6 +80,7 @@ struct Settings: Equatable {
         defaults.set(speed.rawValue, forKey: Key.speed)
         defaults.set(opacity.rawValue, forKey: Key.opacity)
         defaults.set(pauseInLowPowerMode, forKey: Key.lowPower)
+        defaults.set(hasWelcomed, forKey: Key.welcomed)
     }
 
     private static func choice<C: MenuChoice>(_ key: String, in defaults: UserDefaults) -> C? {
@@ -90,5 +93,6 @@ struct Settings: Equatable {
         static let speed = "speed"
         static let opacity = "opacity"
         static let lowPower = "pauseInLowPowerMode"
+        static let welcomed = "hasWelcomed"
     }
 }

@@ -3,6 +3,10 @@ import AppKit
 /// A transparent, borderless, click-through window covering one screen.
 final class OverlayWindow: NSWindow {
     let field: DotField
+    /// Called when the window comes into view or goes out of it, e.g. behind a full-screen app.
+    var onVisibilityChange: (() -> Void)?
+    private var occlusionObserver: NSObjectProtocol?
+    private var hasReportedOcclusion = false
 
     /// Just above the wallpaper, below the desktop icons.
     private static let desktopLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
@@ -26,7 +30,9 @@ final class OverlayWindow: NSWindow {
         disableCursorRects()
         isReleasedWhenClosed = false
         animationBehavior = .none
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        // Not on full-screen spaces, and left out of screen sharing and screenshots.
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        sharingType = .none
 
         // A layer-hosting view: AppKit never draws into it, so there is no
         // screen-sized backing bitmap, only the small dot layers.
@@ -40,6 +46,18 @@ final class OverlayWindow: NSWindow {
 
         setFrame(frame, display: false)
         apply(layer: settings.layer, opacity: settings.opacity)
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            self?.hasReportedOcclusion = true
+            self?.onVisibilityChange?()
+        }
+    }
+
+    /// Counted as visible until the window server first reports, so a new
+    /// window doesn't briefly read as hidden and dim the menu bar icon.
+    var isOnScreen: Bool {
+        !hasReportedOcclusion || occlusionState.contains(.visible)
     }
 
     override var canBecomeKey: Bool { false }
@@ -51,6 +69,9 @@ final class OverlayWindow: NSWindow {
     }
 
     override func close() {
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
+        onVisibilityChange = nil
         field.tearDown()
         super.close()
     }
