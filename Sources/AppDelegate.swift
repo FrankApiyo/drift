@@ -1,34 +1,59 @@
 import AppKit
 
-/// Owns one overlay window per screen, decides when the dots should move, and
-/// changes the mood every few minutes.
+/// Owns one overlay window per screen and decides when the dots should move.
 final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
+    private static let launchFade: TimeInterval = 3
+    private static let pauseFade: TimeInterval = 1.5
+    private static let welcomeDelay: TimeInterval = 1
+
     private(set) var settings = Settings.load()
     private(set) var isUserPaused = false
 
-    private enum SystemPause { case displaysAsleep, sessionInactive, screenLocked }
-
     private var systemPauses: Set<SystemPause> = []
-    private var mood = Mood.calm
-    private var moodTimer: Timer?
     private var windows: [OverlayWindow] = []
+    private var screenLayout: [ScreenLayout] = []
     private var statusMenu: StatusMenu?
-    private var observers: [NSObjectProtocol] = []
+    private var systemEvents: SystemEvents?
+    private var hotKey: HotKey?
+    private var welcome: Welcome?
+    /// Set while a pause fades the dots out; they keep moving until it ends.
+    private var pauseFadeTimer: Timer?
+    private lazy var moods = MoodDirector(
+        isVisiblyAnimating: { [unowned self] in runState.isVisiblyAnimating },
+        windows: { [unowned self] in windows })
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusMenu = StatusMenu(controller: self)
         rebuildWindows()
-        observeSystemEvents()
-        scheduleMoodChange()
+        systemEvents = SystemEvents(handlers: systemEventHandlers())
+        hotKey = HotKey.pauseToggle { [weak self] in
+            self?.statusMenu?.closeMenu()
+            self?.togglePause()
+        }
+        moods.start()
+        if !settings.hasWelcomed {
+            showWelcomeSoon()
+        }
     }
 
     // MARK: - MenuController
 
     var isLaunchAtLoginEnabled: Bool { LoginItem.isEnabled }
+    var isVisiblyAnimating: Bool { runState.isVisiblyAnimating }
+    var hasPauseShortcut: Bool { hotKey != nil }
+    var moodSummary: String { moods.mood.summary }
+    var sightings: Sightings { moods.sightings }
 
     func togglePause() {
         isUserPaused.toggle()
+        pauseFadeTimer?.invalidate()
+        pauseFadeTimer = isUserPaused ? oneShot(after: Self.pauseFade) { [weak self] in self?.pauseFadeEnded() } : nil
+        windows.forEach { $0.field.fade(toVisible: !isUserPaused, duration: Self.pauseFade) }
         updateRunning()
+    }
+
+    func newMood() {
+        moods.changeNow()
     }
 
     func update(_ newSettings: Settings) {
@@ -58,100 +83,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
         }
     }
 
-    // MARK: - Running state
-
-    private var shouldAnimate: Bool {
-        let lowPowerPause = settings.pauseInLowPowerMode && ProcessInfo.processInfo.isLowPowerModeEnabled
-        return !isUserPaused && systemPauses.isEmpty && !lowPowerPause
+    func menuWillOpen() {
+        welcome?.close()
     }
 
+    // MARK: - Running state
+
+    private var runState: RunState {
+        RunState(
+            isUserPaused: isUserPaused,
+            isFadingOut: pauseFadeTimer != nil,
+            systemPauses: systemPauses,
+            lowPowerPause: settings.pauseInLowPowerMode && ProcessInfo.processInfo.isLowPowerModeEnabled,
+            anyWindowVisible: windows.contains(where: \.isOnScreen))
+    }
+
+    /// Each screen moves only while it is in view; system pauses stop motion at once.
     private func updateRunning() {
-        let running = shouldAnimate
-        windows.forEach { $0.field.setRunning(running) }
+        let state = runState
+        windows.forEach { $0.field.setRunning(state.motionAllowed && $0.isOnScreen) }
+        // Working in a full-screen app still counts as focus, so visibility is left out.
+        moods.unpausedChanged(state.isUnpaused)
+        statusMenu?.show(pauseReason: state.pauseReason)
+    }
+
+    private func pauseFadeEnded() {
+        pauseFadeTimer = nil
+        updateRunning()
     }
 
     private func setSystemPause(_ reason: SystemPause, active: Bool) {
-        if active {
-            systemPauses.insert(reason)
-        } else {
-            systemPauses.remove(reason)
-        }
+        systemPauses = active ? systemPauses.union([reason]) : systemPauses.subtracting([reason])
         updateRunning()
+    }
+
+    /// Moving the Dock or the menu bar also posts a screen change; only a new layout needs new windows.
+    private func screensChanged() {
+        guard ScreenLayout.current != screenLayout else { return }
+        rebuildWindows()
     }
 
     private func rebuildWindows() {
+        screenLayout = ScreenLayout.current
         windows.forEach { $0.close() }
-        windows = NSScreen.screens.map { OverlayWindow(screen: $0, settings: settings, mood: mood) }
-        windows.forEach { $0.orderFrontRegardless() }
+        windows = NSScreen.screens.map { OverlayWindow(screen: $0, settings: settings, mood: moods.mood) }
+        windows.forEach { window in
+            window.onVisibilityChange = { [weak self] in self?.updateRunning() }
+            window.field.fade(toVisible: false, duration: 0)
+            if !isUserPaused {
+                window.field.fade(toVisible: true, duration: Self.launchFade)
+            }
+            window.present()
+        }
         updateRunning()
     }
 
-    // MARK: - Moods
+    private func systemEventHandlers() -> SystemEventHandlers {
+        SystemEventHandlers(
+            pause: { [weak self] reason, active in self?.setSystemPause(reason, active: active) },
+            powerStateChanged: { [weak self] in self?.updateRunning() },
+            screensChanged: { [weak self] in self?.screensChanged() },
+            woke: { [weak self] in self?.moods.woke() },
+            reduceMotionChanged: { [weak self] in self?.applyReduceMotion() })
+    }
 
-    /// A single one-shot timer minutes apart; the generous tolerance lets
-    /// macOS fold the wake-up into other work.
-    private func scheduleMoodChange() {
-        let timer = Timer(timeInterval: .random(in: Mood.changeIntervals), repeats: false) { [weak self] _ in
-            self?.changeMood()
-        }
-        timer.tolerance = 30
+    private func applyReduceMotion() {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        windows.forEach { $0.field.setReduceMotion(reduceMotion) }
+    }
+
+    // MARK: - Welcome and errors
+
+    /// Waits a moment so the status item has its place in the menu bar.
+    private func showWelcomeSoon() {
+        _ = oneShot(after: Self.welcomeDelay) { [weak self] in self?.showWelcome() }
+    }
+
+    private func showWelcome() {
+        // An icon hidden by the notch or a menu bar manager waits for a later launch.
+        guard welcome == nil, let button = statusMenu?.button,
+            button.window?.occlusionState.contains(.visible) == true
+        else { return }
+        let toggle = LaunchAtLoginToggle(
+            isEnabled: { LoginItem.isEnabled },
+            toggle: { [weak self] in self?.toggleLaunchAtLogin() })
+        let welcome = Welcome(layer: settings.layer, launchAtLogin: toggle) { [weak self] in self?.welcome = nil }
+        welcome.show(below: button)
+        self.welcome = welcome
+        update(settings.with(\.hasWelcomed, true))
+    }
+
+    private func oneShot(after interval: TimeInterval, _ action: @escaping () -> Void) -> Timer {
+        let timer = Timer(timeInterval: interval, repeats: false) { _ in action() }
+        timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
-        moodTimer = timer
-    }
-
-    private func changeMood() {
-        // While paused nobody is watching, so save the surprise.
-        if shouldAnimate {
-            var rng = SystemRandomNumberGenerator()
-            mood = Mood.random(after: mood, using: &rng)
-            DotImages.removeAll()
-            windows.forEach { $0.field.setMood(mood) }
-        }
-        scheduleMoodChange()
-    }
-
-    // MARK: - System events
-
-    private func observeSystemEvents() {
-        let workspace = NSWorkspace.shared.notificationCenter
-        let pauses: [(Notification.Name, SystemPause, Bool)] = [
-            (NSWorkspace.screensDidSleepNotification, .displaysAsleep, true),
-            (NSWorkspace.screensDidWakeNotification, .displaysAsleep, false),
-            (NSWorkspace.sessionDidResignActiveNotification, .sessionInactive, true),
-            (NSWorkspace.sessionDidBecomeActiveNotification, .sessionInactive, false),
-        ]
-        let pauseObservers = pauses.map { name, reason, active in
-            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.setSystemPause(reason, active: active)
-            }
-        }
-        let center = NotificationCenter.default
-        observers = pauseObservers + [
-            center.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) {
-                [weak self] _ in self?.updateRunning()
-            },
-            center.addObserver(
-                forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-            ) { [weak self] _ in self?.rebuildWindows() },
-        ]
-
-        // Distributed notifications are held back while an app is inactive,
-        // which Drift nearly always is, unless delivery is immediate.
-        let distributed = DistributedNotificationCenter.default()
-        distributed.addObserver(
-            self, selector: #selector(screenLocked), name: .init("com.apple.screenIsLocked"),
-            object: nil, suspensionBehavior: .deliverImmediately)
-        distributed.addObserver(
-            self, selector: #selector(screenUnlocked), name: .init("com.apple.screenIsUnlocked"),
-            object: nil, suspensionBehavior: .deliverImmediately)
-    }
-
-    @objc private func screenLocked() {
-        setSystemPause(.screenLocked, active: true)
-    }
-
-    @objc private func screenUnlocked() {
-        setSystemPause(.screenLocked, active: false)
+        return timer
     }
 
     private func showLoginItemError(_ error: Error) {
@@ -164,5 +190,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuController {
             NSApp.activate(ignoringOtherApps: true)
         }
         alert.runModal()
+        // Drift has no window to keep, so the app that was in front gets the keyboard back.
+        NSApp.deactivate()
+    }
+}
+
+/// What an overlay window is built from.
+private struct ScreenLayout: Equatable {
+    let frame: NSRect
+    let scale: CGFloat
+
+    static var current: [ScreenLayout] {
+        NSScreen.screens.map { ScreenLayout(frame: $0.frame, scale: $0.backingScaleFactor) }
     }
 }

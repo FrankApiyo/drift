@@ -1,41 +1,55 @@
 import QuartzCore
 
-/// One soft dot. It keeps its direction for life and draws a new random pass
-/// each time it leaves the screen.
+/// One soft dot. It keeps its depth tier and home direction for life and
+/// draws a new random pass each time it leaves the screen.
 ///
 /// Core Animation runs the motion in the render server. This object only wakes
-/// up when a pass ends (`animationDidStop`), the mood changes, or it is paused
-/// or resumed.
+/// up when a pass ends (`animationDidStop`), the mood or a setting changes, or
+/// it is paused or resumed.
 final class Dot: NSObject, CAAnimationDelegate {
     let layer = CALayer()
 
-    private let direction: DotPass.Direction
-    private let area: CGSize
+    private var setup: PassSetup
     private var speedFactor: Double
+    private var reduceMotion: Bool
     private var mood: Mood
     private var pass: DotPass
     private var trip: Trip?
     private var tripID = 0
     private var isRunning = false
+    private let oddOneOutChance: Double
 
     private static let tripKey = "tripID"
-    private static let rotationKey = "transform.rotation.z"
-    private static let motionKeys = ["drift", "wobble", "spin"]
-    private static let wobbleSamples = 24
-    /// Slow motion looks the same at 30 fps, so don't ask ProMotion screens for 120.
-    private static let frameRates = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
 
-    init(area: CGSize, scale: CGFloat, speedFactor: Double, mood: Mood) {
-        self.area = area
+    init(setup: PassSetup, scale: CGFloat, speedFactor: Double, mood: Mood, reduceMotion: Bool,
+         oddOneOutChance: Double = Mood.oddOneOutChance) {
+        self.setup = setup
         self.speedFactor = speedFactor
+        self.reduceMotion = reduceMotion
         self.mood = mood
-        direction = Bool.random() ? .up : .down
-        pass = Self.randomPass(direction: direction, area: area, mood: mood)
+        self.oddOneOutChance = oddOneOutChance
+        pass = Self.randomPass(setup, mood: mood, oddOneOutChance: oddOneOutChance)
         super.init()
         layer.contentsScale = scale
         layer.contentsGravity = .resize
+        layer.zPosition = setup.tier.zPosition
         // The first pass starts mid-screen so dots don't all arrive from the edges at launch.
-        show(pass, atY: .random(in: 0...max(area.height, 0)))
+        show(pass, atY: .random(in: 0...max(setup.area.height, 0)))
+    }
+
+    /// Where the dot is drawn now, in its screen's layer coordinates.
+    var currentPosition: CGPoint {
+        CGPoint(x: layer.presentation()?.position.x ?? layer.position.x,
+                y: trip?.y(at: CACurrentMediaTime()) ?? layer.position.y)
+    }
+
+    private var currentAngle: Double {
+        DotMotion.rotation(of: layer.presentation() ?? layer)
+    }
+
+    /// Reduce Motion drifts no faster than the Slower setting.
+    private var effectiveSpeed: Double {
+        reduceMotion ? min(speedFactor, DriftSpeed.slower.factor) : speedFactor
     }
 
     func start() {
@@ -44,51 +58,61 @@ final class Dot: NSObject, CAAnimationDelegate {
         beginTrip(fromY: layer.position.y)
     }
 
-    /// Freezes the dot where it is and removes its animations, so nothing is
+    /// Freezes the dot where it is and removes its motion, so nothing is
     /// left for the render server to animate.
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        let presentation = layer.presentation()
-        let x = presentation?.position.x ?? layer.position.x
-        let y = trip?.y(at: CACurrentMediaTime()) ?? layer.position.y
-        let angle = presentation?.value(forKeyPath: Self.rotationKey) ?? layer.value(forKeyPath: Self.rotationKey)
+        let position = currentPosition
+        let angle = currentAngle
+        let opacity = layer.presentation()?.opacity ?? layer.opacity
         trip = nil
-        withoutImplicitAnimation {
-            layer.position = CGPoint(x: x, y: y)
-            layer.setValue(angle, forKeyPath: Self.rotationKey)
-            // A mood fade lasts under half a minute, so let it finish rather
-            // than snap the frozen dot to its new look.
-            Self.motionKeys.forEach(layer.removeAnimation(forKey:))
+        CATransaction.withoutActions {
+            layer.position = position
+            layer.setValue(angle, forKeyPath: DotMotion.rotationKey)
+            layer.opacity = opacity
+            DotMotion.keys.forEach(layer.removeAnimation(forKey:))
         }
     }
 
     func setSpeedFactor(_ factor: Double) {
         speedFactor = factor
-        guard isRunning else { return }
-        stop()
-        start()
+        restartIfRunning()
     }
 
-    /// Cross-fades to a look from the new mood after `delay`. The mood's pace
-    /// takes over at the next wrap, so speed never changes mid-trip.
-    func adopt(_ newMood: Mood, after delay: TimeInterval, fadingOver duration: TimeInterval) {
+    func setReduceMotion(_ reduce: Bool) {
+        reduceMotion = reduce
+        restartIfRunning()
+    }
+
+    /// Takes effect at the next wrap.
+    func setColumn(_ column: Int, of columns: Int) {
+        setup = setup.with(column: column, of: columns)
+    }
+
+    /// Cross-fades to a look from the new mood after `delay`, swelling a
+    /// little as it changes, from whatever is on screen now. A shape that
+    /// doesn't suit the current turn waits for the next wrap, along with the
+    /// mood's pace and motion, so neither speed nor turn changes mid-trip.
+    func adopt(_ newMood: Mood, desktop: CGRect, after delay: TimeInterval, fadingOver duration: TimeInterval) {
         mood = newMood
+        setup = setup.with(desktop: desktop)
         var rng = SystemRandomNumberGenerator()
-        pass = pass.restyled(newMood.randomLook(oddOneOutChance: Mood.oddOneOutChance, using: &rng))
+        let look = newMood.randomLook(
+            oddOneOutChance: oddOneOutChance, desktopFraction: setup.desktopFraction(ofX: pass.x),
+            softness: setup.tier.softness, using: &rng)
+        pass = pass.restyled(look)
         let image = DotImages.image(for: pass.look)
+        let begin = DotMotion.now(on: layer) + delay
+        let shown = layer.presentation()
+        let fade = DotMotion.restyle(from: shown?.contents ?? layer.contents, to: image, beginTime: begin, duration: duration)
+        let swell = DotMotion.swell(from: shown?.bounds.size ?? layer.bounds.size, to: layer.bounds.size,
+                                    beginTime: begin, duration: duration)
 
-        let fade = CABasicAnimation(keyPath: "contents")
-        fade.fromValue = layer.contents
-        fade.toValue = image
-        fade.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
-        fade.duration = duration
-        fade.fillMode = .backwards
-        fade.preferredFrameRateRange = Self.frameRates
-
-        withoutImplicitAnimation {
+        CATransaction.withoutActions {
             layer.contents = image
-            layer.add(fade, forKey: "restyle")
+            layer.add(fade, forKey: DotMotion.restyleKey)
+            layer.add(swell, forKey: DotMotion.swellKey)
         }
     }
 
@@ -96,81 +120,51 @@ final class Dot: NSObject, CAAnimationDelegate {
         // Removed or replaced animations report finished == false; a stale
         // finish can still arrive after a pause and resume, hence the ID check.
         guard finished, isRunning, anim.value(forKey: Self.tripKey) as? Int == tripID else { return }
-        pass = Self.randomPass(direction: direction, area: area, mood: mood)
-        show(pass, atY: pass.startY(areaHeight: area.height))
+        pass = Self.randomPass(setup, mood: mood, oddOneOutChance: oddOneOutChance)
+        show(pass, atY: pass.startY(areaHeight: setup.area.height))
         beginTrip(fromY: layer.position.y)
     }
 
+    private func restartIfRunning() {
+        guard isRunning else { return }
+        stop()
+        start()
+    }
+
     private func beginTrip(fromY y: CGFloat) {
-        let toY = pass.endY(areaHeight: area.height)
-        let duration = max(pass.duration(fromY: y, areaHeight: area.height, speedFactor: speedFactor), 0.01)
+        let toY = pass.endY(areaHeight: setup.area.height)
+        let duration = max(pass.duration(fromY: y, areaHeight: setup.area.height, speedFactor: effectiveSpeed), 0.01)
         tripID += 1
 
-        let drift = CABasicAnimation(keyPath: "position.y")
-        drift.fromValue = y
-        drift.toValue = toY
-        drift.duration = duration
+        let drift = DotMotion.drift(fromY: y, toY: toY, duration: duration)
         drift.delegate = self
-        drift.preferredFrameRateRange = Self.frameRates
         drift.setValue(tripID, forKey: Self.tripKey)
+        let motions = DotMotion.motions(for: pass, on: layer, reduceMotion: reduceMotion)
 
-        withoutImplicitAnimation {
+        CATransaction.withoutActions {
             layer.position.y = toY
-            layer.add(drift, forKey: "drift")
-            layer.add(makeWobble(), forKey: "wobble")
-            layer.add(makeSpin(), forKey: "spin")
+            DotMotion.keys.forEach(layer.removeAnimation(forKey:))
+            layer.add(drift, forKey: DotMotion.driftKey)
+            DotMotion.standUpright(layer, for: pass).map { layer.add($0, forKey: DotMotion.settleKey) }
+            motions.forEach { key, animation in layer.add(animation, forKey: key) }
         }
         trip = Trip(fromY: y, toY: toY, startTime: CACurrentMediaTime(), duration: duration)
     }
 
-    /// A sideways sine sway added on top of the dot's x. It starts at zero
-    /// offset, so resuming from a pause doesn't make the dot jump.
-    private func makeWobble() -> CAKeyframeAnimation {
-        let amplitude = pass.wobbleAmplitude
-        let steps = CGFloat(Self.wobbleSamples)
-        let wobble = CAKeyframeAnimation(keyPath: "position.x")
-        wobble.values = (0...Self.wobbleSamples).map { amplitude * sin(2 * .pi * CGFloat($0) / steps) }
-        wobble.isAdditive = true
-        wobble.duration = pass.wobblePeriod
-        wobble.repeatCount = .infinity
-        wobble.preferredFrameRateRange = Self.frameRates
-        return wobble
-    }
-
-    /// A slow full turn from wherever the dot is facing, so resuming doesn't snap it upright.
-    private func makeSpin() -> CABasicAnimation {
-        let start = (layer.value(forKeyPath: Self.rotationKey) as? NSNumber)?.doubleValue ?? 0
-        let turn = pass.spinsClockwise ? -2 * Double.pi : 2 * Double.pi
-        let spin = CABasicAnimation(keyPath: Self.rotationKey)
-        spin.fromValue = start
-        spin.toValue = start + turn
-        spin.duration = pass.spinPeriod
-        spin.repeatCount = .infinity
-        spin.preferredFrameRateRange = Self.frameRates
-        return spin
-    }
-
     private func show(_ pass: DotPass, atY y: CGFloat) {
-        withoutImplicitAnimation {
-            layer.removeAnimation(forKey: "restyle")
+        CATransaction.withoutActions {
+            layer.removeAnimation(forKey: DotMotion.restyleKey)
+            layer.removeAnimation(forKey: DotMotion.swellKey)
             layer.bounds = CGRect(x: 0, y: 0, width: pass.diameter, height: pass.diameter)
             layer.position = CGPoint(x: pass.x, y: y)
             layer.opacity = pass.alpha
             layer.contents = DotImages.image(for: pass.look)
+            layer.setValue(0, forKeyPath: DotMotion.rotationKey)
         }
     }
 
-    private func withoutImplicitAnimation(_ changes: () -> Void) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        changes()
-        CATransaction.commit()
-    }
-
-    private static func randomPass(direction: DotPass.Direction, area: CGSize, mood: Mood) -> DotPass {
+    private static func randomPass(_ setup: PassSetup, mood: Mood, oddOneOutChance: Double) -> DotPass {
         var rng = SystemRandomNumberGenerator()
-        return DotPass.random(
-            direction: direction, area: area, mood: mood,
-            oddOneOutChance: Mood.oddOneOutChance, using: &rng)
+        return DotPass.random(setup, mood: mood, oddOneOutChance: oddOneOutChance, using: &rng)
     }
 }

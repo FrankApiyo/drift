@@ -3,10 +3,16 @@ import AppKit
 protocol MenuController: AnyObject {
     var settings: Settings { get }
     var isUserPaused: Bool { get }
+    var isVisiblyAnimating: Bool { get }
+    var hasPauseShortcut: Bool { get }
     var isLaunchAtLoginEnabled: Bool { get }
+    var moodSummary: String { get }
+    var sightings: Sightings { get }
     func togglePause()
+    func newMood()
     func update(_ settings: Settings)
     func toggleLaunchAtLogin()
+    func menuWillOpen()
 }
 
 /// The menu bar icon and its menu. Items are rebuilt each time the menu opens,
@@ -20,6 +26,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         super.init()
         let menu = NSMenu()
         menu.delegate = self
+        menu.autoenablesItems = false
         statusItem.menu = menu
         if let image = NSImage(systemSymbolName: "circle.dotted", accessibilityDescription: "Drift") {
             image.isTemplate = true
@@ -27,6 +34,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         } else {
             statusItem.button?.title = "Drift"
         }
+        show(pauseReason: nil)
+    }
+
+    var button: NSStatusBarButton? { statusItem.button }
+
+    /// The hot key can fire while the menu is open, which would leave its Pause item stale.
+    func closeMenu() {
+        statusItem.menu?.cancelTracking()
+    }
+
+    func show(pauseReason: PauseReason?) {
+        statusItem.button?.appearsDisabled = pauseReason != nil
+        statusItem.button?.toolTip = RunState.tooltip(for: pauseReason)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        controller?.menuWillOpen()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -38,12 +62,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
 
         menu.items = [
-            ActionItem(controller.isUserPaused ? "Resume" : "Pause") { controller.togglePause() },
+            InfoItem("Now: \(controller.moodSummary)", enabled: false),
+            ActionItem("New Mood", enabled: controller.isVisiblyAnimating) { controller.newMood() },
+            ActionItem(
+                controller.isUserPaused ? "Resume" : "Pause",
+                key: controller.hasPauseShortcut ? Shortcut.pauseToggle.keyEquivalent : "",
+                modifiers: Shortcut.pauseToggle.modifiers
+            ) { controller.togglePause() },
             .separator(),
             choices("Layer", current: settings.layer) { value in change { $0.with(\.layer, value) } },
             choices("Number of dots", current: settings.count) { value in change { $0.with(\.count, value) } },
             choices("Speed", current: settings.speed) { value in change { $0.with(\.speed, value) } },
             choices("Opacity", current: settings.opacity) { value in change { $0.with(\.opacity, value) } },
+            .separator(),
+            seen(controller.sightings),
             .separator(),
             ActionItem("Pause in Low Power Mode", checked: settings.pauseInLowPowerMode) {
                 change { $0.with(\.pauseInLowPowerMode, !$0.pauseInLowPowerMode) }
@@ -63,9 +95,29 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         submenu.items = C.allCases.map { choice in
             ActionItem(choice.title, checked: choice == current) { pick(choice) }
         }
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.submenu = submenu
-        return item
+        return InfoItem(title, submenu: submenu)
+    }
+
+    private func seen(_ sightings: Sightings) -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        submenu.items = RareEvent.allCases.map { event in
+            InfoItem(sightings.menuTitle(for: event), enabled: sightings.firstSeen(event) != nil)
+        }
+        return InfoItem("Seen", submenu: submenu)
+    }
+}
+
+/// A menu item with no action: a label, or the parent of a submenu.
+private final class InfoItem: NSMenuItem {
+    init(_ title: String, enabled: Bool = true, submenu: NSMenu? = nil) {
+        super.init(title: title, action: nil, keyEquivalent: "")
+        isEnabled = enabled
+        self.submenu = submenu
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("InfoItem is created in code only")
     }
 }
 
@@ -73,11 +125,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 private final class ActionItem: NSMenuItem {
     private let handler: () -> Void
 
-    init(_ title: String, checked: Bool = false, key: String = "", handler: @escaping () -> Void) {
+    init(
+        _ title: String, checked: Bool = false, enabled: Bool = true, key: String = "",
+        modifiers: NSEvent.ModifierFlags = .command, handler: @escaping () -> Void
+    ) {
         self.handler = handler
         super.init(title: title, action: #selector(fire), keyEquivalent: key)
         target = self
         state = checked ? .on : .off
+        isEnabled = enabled
+        keyEquivalentModifierMask = modifiers
     }
 
     required init(coder: NSCoder) {
